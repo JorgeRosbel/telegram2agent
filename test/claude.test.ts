@@ -26,6 +26,17 @@ const ASSISTANT_LINE = JSON.stringify({
   },
 });
 
+const THINKING_ASSISTANT_LINE = JSON.stringify({
+  type: "assistant",
+  session_id: "3f2a-abc",
+  message: {
+    content: [
+      { type: "thinking", thinking: "El usuario pide X; reviso auth primero." },
+      { type: "text", text: "Voy a revisar el módulo auth." },
+    ],
+  },
+});
+
 const PERMISSION_LINE = JSON.stringify({
   type: "control_request",
   request_id: "req-123",
@@ -51,6 +62,17 @@ describe("parseClaudeEvent", () => {
     const parsed = parseClaudeEvent(ASSISTANT_LINE);
     expect(parsed.text).toBe("Voy a revisar el módulo auth.");
     expect(parsed.sessionId).toBe("3f2a-abc");
+  });
+
+  it("extrae el thinking de los bloques del asistente", () => {
+    const parsed = parseClaudeEvent(THINKING_ASSISTANT_LINE);
+    expect(parsed.thinking).toBe("El usuario pide X; reviso auth primero.");
+    expect(parsed.text).toBe("Voy a revisar el módulo auth.");
+  });
+
+  it("no confunde thinking con text", () => {
+    const parsed = parseClaudeEvent(THINKING_ASSISTANT_LINE);
+    expect(parsed.thinking).not.toContain("Voy a revisar");
   });
 
   it("convierte un control_request en petición de permiso", () => {

@@ -63,3 +63,64 @@ export function sanitizeForTelegram(text: string): string {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
+
+/** Escapa texto para parse_mode HTML (seguro también dentro de atributos). */
+export function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** Añade el cierre ``` si hay un número impar de cercos (parciales en vivo). */
+export function balanceFences(text: string): string {
+  const fences = (text.match(/```/g) ?? []).length;
+  return fences % 2 === 1 ? `${text}\n\`\`\`` : text;
+}
+
+const FENCED_BLOCK = /```[\w-]*\n?([\s\S]*?)```/g;
+const INLINE_CODE = /`([^`\n]+)`/g;
+const LINK = /\[([^\]]+)\]\(([^)\s]+)\)/g;
+const BOLD = /\*([^*\n]+)\*/g;
+
+/**
+ * Convierte la salida del agente (ya sanitizada) en HTML de Telegram:
+ * bloques cercados → <pre>, `código` → <code>, *negrita* → <b> y
+ * [texto](url) → <a>. Todo lo demás queda escapado y a salvo.
+ * Con balanceFences, los parciales de streaming con un bloque abierto
+ * se cierran antes de convertir.
+ */
+export function toTelegramHtml(
+  text: string,
+  options?: { balanceFences?: boolean },
+): string {
+  const sanitized = sanitizeForTelegram(text);
+  const source = options?.balanceFences ? balanceFences(sanitized) : sanitized;
+  const escaped = escapeHtml(source);
+
+  // El código se aparta antes de convertir negritas/enlaces para que sus
+  // caracteres no se toquen; luego se restauran los fragmentos.
+  // (Marcador del Private Use Area: no colisiona con texto real.)
+  const stash: string[] = [];
+  const park = (html: string): string => {
+    stash.push(html);
+    return `\uE000${stash.length - 1}\uE001`;
+  };
+
+  let out = escaped.replace(FENCED_BLOCK, (_m, code: string) =>
+    park(`<pre>${code.replace(/^\n+|\n+$/g, "")}</pre>`),
+  );
+  out = out.replace(INLINE_CODE, (_m, code: string) =>
+    park(`<code>${code}</code>`),
+  );
+  out = out.replace(LINK, (_m, label: string, url: string) =>
+    park(`<a href="${url}">${label}</a>`),
+  );
+  out = out.replace(BOLD, "<b>$1</b>");
+  out = out.replace(
+    /\uE000(\d+)\uE001/g,
+    (_m, index: string) => stash[Number(index)] ?? "",
+  );
+  return out;
+}

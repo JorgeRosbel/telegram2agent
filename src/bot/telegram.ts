@@ -1,4 +1,4 @@
-import { Bot, type Context } from "grammy";
+import { Bot, type Api, type Context } from "grammy";
 import path from "node:path";
 import type {
   AgentAdapter,
@@ -16,7 +16,7 @@ import {
   modelsKeyboard,
   modesKeyboard,
 } from "./keyboards";
-import { sanitizeForTelegram } from "./format";
+import { escapeHtml, toTelegramHtml } from "./format";
 import {
   collectOutboundFiles,
   downloadIncoming,
@@ -50,6 +50,7 @@ const HELP = [
   "• `!comando` → lo ejecuta en la terminal del proyecto (ej. `!pnpm test`)",
   "• Envía una foto o documento → llega como adjunto al agente",
   "• Responde (reply) a un mensaje del bot → continúa esa sesión",
+  "• Si el agente razona, su thinking llega en un mensaje expandible 🧠",
   "",
   "`/model` — elegir modelo (queda como default)",
   "`/agent` — cambiar entre Claude Code y OpenCode",
@@ -95,23 +96,33 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
     .catch(() => undefined);
 
   // ── Comandos ─────────────────────────────────────────────────────────────
-  bot.command("start", (ctx) => ctx.reply(HELP, { parse_mode: "Markdown" }));
-  bot.command("help", (ctx) => ctx.reply(HELP, { parse_mode: "Markdown" }));
+  const replyHtml = (text: string) => toTelegramHtml(text);
+  bot.command("start", (ctx) =>
+    ctx.reply(replyHtml(HELP), { parse_mode: "HTML" }),
+  );
+  bot.command("help", (ctx) =>
+    ctx.reply(replyHtml(HELP), { parse_mode: "HTML" }),
+  );
 
   bot.command("model", async (ctx) => {
     const adapter = currentAdapter();
     const models = await adapter.listModels();
     if (models.length === 0) {
       await ctx.reply(
-        `No hay modelos configurados para *${adapter.name}*. Añádelos en createBot({ opencode: { models: ['provider/model'] } }) o usa claude con sus alias nativos.`,
-        { parse_mode: "Markdown" },
+        replyHtml(
+          `No hay modelos configurados para *${adapter.name}*. Añádelos en createBot({ opencode: { models: ['provider/model'] } }) o usa claude con sus alias nativos.`,
+        ),
+        { parse_mode: "HTML" },
       );
       return;
     }
-    await ctx.reply(`Modelos de *${adapter.name}* (elige el default):`, {
-      parse_mode: "Markdown",
-      reply_markup: modelsKeyboard(models),
-    });
+    await ctx.reply(
+      replyHtml(`Modelos de *${adapter.name}* (elige el default):`),
+      {
+        parse_mode: "HTML",
+        reply_markup: modelsKeyboard(models),
+      },
+    );
   });
 
   bot.command("agent", (ctx) => {
@@ -121,8 +132,8 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
   });
 
   bot.command("mode", (ctx) => {
-    void ctx.reply(`Modo de *${store.agent}*:`, {
-      parse_mode: "Markdown",
+    void ctx.reply(replyHtml(`Modo de *${store.agent}*:`), {
+      parse_mode: "HTML",
       reply_markup: modesKeyboard(store.modeFor(store.agent, defaultMode)),
     });
   });
@@ -137,8 +148,8 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
       (task) =>
         `#${task.id} · ${Math.round(task.elapsedMs / 1000)}s · ${truncate(task.description, 60)}`,
     );
-    void ctx.reply(["*Tareas en curso*", ...lines].join("\n"), {
-      parse_mode: "Markdown",
+    void ctx.reply(replyHtml(["*Tareas en curso*", ...lines].join("\n")), {
+      parse_mode: "HTML",
     });
   });
 
@@ -147,9 +158,11 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
     if (!task) return;
     const minutes = Math.round(task.elapsedMs / 60000);
     void ctx.reply(
-      `#${task.id} → *${task.status}* (${minutes} min)\n${truncate(task.description, 120)}`,
+      replyHtml(
+        `#${task.id} → *${task.status}* (${minutes} min)\n${truncate(task.description, 120)}`,
+      ),
       {
-        parse_mode: "Markdown",
+        parse_mode: "HTML",
       },
     );
   });
@@ -164,8 +177,8 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
   bot.command("file", async (ctx) => {
     const requested = ctx.match?.trim();
     if (!requested) {
-      await ctx.reply("Uso: `/file <ruta>` (relativa al proyecto)", {
-        parse_mode: "Markdown",
+      await ctx.reply(replyHtml("Uso: `/file <ruta>` (relativa al proyecto)"), {
+        parse_mode: "HTML",
       });
       return;
     }
@@ -184,9 +197,9 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
     await store.setModel(store.agent, model);
     await ctx.answerCallbackQuery({ text: `Modelo por defecto: ${model}` });
     await ctx.editMessageText(
-      `✅ Modelo por defecto de *${store.agent}*: \`${model}\``,
+      replyHtml(`✅ Modelo por defecto de *${store.agent}*: \`${model}\``),
       {
-        parse_mode: "Markdown",
+        parse_mode: "HTML",
       },
     );
   });
@@ -196,8 +209,8 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
     if (!(agent in adapters)) return;
     await store.setAgent(agent);
     await ctx.answerCallbackQuery({ text: `Agente activo: ${agent}` });
-    await ctx.editMessageText(`✅ Agente activo: *${agent}*`, {
-      parse_mode: "Markdown",
+    await ctx.editMessageText(replyHtml(`✅ Agente activo: *${agent}*`), {
+      parse_mode: "HTML",
     });
   });
 
@@ -207,9 +220,12 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
     await store.setMode(store.agent, mode);
     const label = mode === "plan" ? "📋 plan (solo lectura)" : "✏️ editar";
     await ctx.answerCallbackQuery({ text: `Modo: ${label}` });
-    await ctx.editMessageText(`✅ Modo de *${store.agent}*: ${label}`, {
-      parse_mode: "Markdown",
-    });
+    await ctx.editMessageText(
+      replyHtml(`✅ Modo de *${store.agent}*: ${label}`),
+      {
+        parse_mode: "HTML",
+      },
+    );
   });
 
   bot.callbackQuery(/^perm:(.+):(0|1)$/, async (ctx) => {
@@ -257,8 +273,8 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
   function taskFromCommand(ctx: Context, match: string) {
     const id = Number.parseInt(match.trim(), 10);
     if (Number.isNaN(id)) {
-      void ctx.reply("Uso: `/status <id>` o `/cancel <id>`", {
-        parse_mode: "Markdown",
+      void ctx.reply(replyHtml("Uso: `/status <id>` o `/cancel <id>`"), {
+        parse_mode: "HTML",
       });
       return undefined;
     }
@@ -358,7 +374,7 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
     const agent = store.agent;
     const adapter = adapters[agent];
     const mode = store.modeFor(agent, defaultMode);
-    const editor = new StreamEditor(ctx.api, chatId);
+    const editor = new StreamEditor(ctx.api, chatId, "HTML");
     const label = attachmentHint ? `📎 ${attachmentHint} · ` : "";
 
     const progressMessageId = await editor.start(
@@ -375,7 +391,8 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
         mode === "edit" && adapter.name === "claude"
           ? (request) => askApproval(ctx, request)
           : undefined,
-      onText: (partial) => editor.update(partial),
+      onText: (partial) =>
+        editor.update(toTelegramHtml(partial, { balanceFences: true })),
     });
 
     if (result.sessionId) {
@@ -393,10 +410,18 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
 
     const footer = options.footer?.(result) ?? defaultFooter(result);
     await editor.finish(
-      [sanitizeForTelegram(result.text) || "(sin respuesta)", "", footer].join(
-        "\n",
-      ),
+      [
+        toTelegramHtml(result.text) || "(sin respuesta)",
+        "",
+        escapeHtml(footer),
+      ].join("\n"),
     );
+
+    // El thinking va en mensaje aparte, después de la respuesta: así su id
+    // cae en progressMessageId+1, que ya es ancla de sesión para replies.
+    if (result.thinking) {
+      await sendThinking(ctx.api, chatId, result.thinking);
+    }
 
     const outbound = collectOutboundFiles(result.text, cwd);
     if (outbound.length > 0) await sendFiles(ctx.api, chatId, outbound);
@@ -444,15 +469,17 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
     const promise = approvals.create(key, request);
     await ctx.api.sendMessage(
       chatIdOf(ctx),
-      [
-        "🔐 *El agente pide permiso:*",
-        `Herramienta: \`${request.tool}\``,
-        request.summary ? `\`${escapeMarkdown(request.summary)}\`` : "",
-        `\nExpira en ${Math.round(approvalTimeoutMs / 1000)}s.`,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      { parse_mode: "Markdown", reply_markup: approvalKeyboard(key) },
+      replyHtml(
+        [
+          "🔐 *El agente pide permiso:*",
+          `Herramienta: \`${request.tool}\``,
+          request.summary ? `\`${request.summary}\`` : "",
+          `\nExpira en ${Math.round(approvalTimeoutMs / 1000)}s.`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      ),
+      { parse_mode: "HTML", reply_markup: approvalKeyboard(key) },
     );
     return promise;
   }
@@ -470,6 +497,26 @@ function defaultFooter(result: RunResult): string {
 }
 
 const SHELL_OUTPUT_LIMIT = 3_500;
+
+const THINKING_LIMIT = 3_800;
+
+/** Envía el razonamiento del agente como cita expandible (colapsada por defecto). */
+async function sendThinking(
+  api: Api,
+  chatId: number,
+  thinking: string,
+): Promise<void> {
+  const truncated = thinking.length > THINKING_LIMIT;
+  const body = escapeHtml(thinking.slice(0, THINKING_LIMIT));
+  await api.sendMessage(
+    chatId,
+    `🧠 <blockquote expandable>${body}${truncated ? "\n…" : ""}</blockquote>`,
+    {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    },
+  );
+}
 
 function shellStatusLine(result: ShellResult): string {
   const seconds = (result.durationMs / 1000).toFixed(1);
@@ -497,21 +544,10 @@ function shellReplyHtml(result: ShellResult): string {
   return `${escapeHtml(header)}\n<pre>${escapeHtml(body)}${suffix}</pre>`;
 }
 
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
 function truncate(text: string, max: number): string {
   return text.length > max
     ? `${text.slice(0, max - 1)}…`
     : text.replace(/\n/g, " ");
-}
-
-function escapeMarkdown(text: string): string {
-  return text.replace(/([_*[\]`])/g, "\\$1");
 }
 
 // Ruta base exportada para reuso en tests.

@@ -24,7 +24,9 @@ interface ClaudeEvent {
   session_id?: string;
   request_id?: string;
   request?: { subtype?: string; tool_name?: string; input?: unknown };
-  message?: { content?: Array<{ type?: string; text?: string }> };
+  message?: {
+    content?: Array<{ type?: string; text?: string; thinking?: string }>;
+  };
   result?: string;
   is_error?: boolean;
   total_cost_usd?: number;
@@ -52,6 +54,8 @@ function summarizeInput(input: unknown): string {
 export interface ParsedClaudeEvent {
   sessionId?: string;
   text?: string;
+  /** Razonamiento emitido en este evento (bloques thinking del assistant). */
+  thinking?: string;
   permission?: { requestId: string; request: PermissionRequest };
   result?: RunResult;
 }
@@ -81,10 +85,15 @@ export function parseClaudeEvent(line: string): ParsedClaudeEvent {
 
   if (event.type === "assistant") {
     let partialText = "";
+    let partialThinking = "";
     for (const block of event.message?.content ?? []) {
       if (block.type === "text" && block.text) partialText += `${block.text}\n`;
+      if (block.type === "thinking" && block.thinking) {
+        partialThinking += `${block.thinking}\n`;
+      }
     }
     if (partialText) parsed.text = partialText.trim();
+    if (partialThinking) parsed.thinking = partialThinking.trim();
     return parsed;
   }
 
@@ -197,10 +206,11 @@ export class ClaudeAdapter implements AgentAdapter {
       const args = buildClaudeArgs(options, this.config);
 
       let settled = false;
+      const timerRef: { current?: ReturnType<typeof setTimeout> } = {};
       const finish = (fail: Error | undefined): void => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
+        if (timerRef.current !== undefined) clearTimeout(timerRef.current);
         if (fail) {
           reject(fail);
         } else if (current) {
@@ -211,6 +221,7 @@ export class ClaudeAdapter implements AgentAdapter {
       };
 
       let current: RunResult | undefined;
+      const thinking: string[] = [];
       const timeoutMs = this.config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
       const { close, controller } = spawnProcess(
@@ -229,8 +240,16 @@ export class ClaudeAdapter implements AgentAdapter {
               return;
             }
             if (parsed.text) options.onText?.(parsed.text);
+            if (parsed.thinking && !thinking.includes(parsed.thinking)) {
+              thinking.push(parsed.thinking);
+              options.onThinking?.(thinking.join("\n\n"));
+            }
             if (parsed.result) {
-              current = parsed.result;
+              current = {
+                ...parsed.result,
+                thinking:
+                  thinking.length > 0 ? thinking.join("\n\n") : undefined,
+              };
               finish(undefined);
             }
           },
@@ -240,7 +259,7 @@ export class ClaudeAdapter implements AgentAdapter {
         },
       );
 
-      const timer = setTimeout(() => {
+      timerRef.current = setTimeout(() => {
         void controller.kill();
         finish(new Error(`claude excedió el timeout de ${timeoutMs}ms`));
       }, timeoutMs);

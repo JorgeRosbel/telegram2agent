@@ -34,6 +34,7 @@ export function parseOpencodeModels(stdout: string): string[] {
  *
  *   {"type":"step_start", "sessionID":"ses_…", "part":{…}}
  *   {"type":"text",       "sessionID":"ses_…", "part":{"type":"text","text":"…"}}
+ *   {"type":"reasoning",  "sessionID":"ses_…", "part":{"type":"reasoning","text":"…"}}
  *   {"type":"step_finish","sessionID":"ses_…", "part":{"reason":"stop","cost":0,"tokens":{…}}}
  */
 interface OpencodeEvent {
@@ -55,11 +56,15 @@ export interface OpencodeAdapterConfig extends AdapterOptions {
   models?: OpenCodeModel[];
   /** Auto-aprueba permisos (--auto). Sin esto, las acciones sensibles se deniegan en headless. */
   autoApprove?: boolean;
+  /** Pide bloques de razonamiento al CLI (--thinking). Default: true. */
+  thinking?: boolean;
 }
 
 export interface ParsedOpencodeEvent {
   sessionId?: string;
   text?: string;
+  /** Razonamiento emitido en este evento (part.type "reasoning"). */
+  thinking?: string;
   costUsd?: number;
 }
 
@@ -75,6 +80,12 @@ export function parseOpencodeEvent(line: string): ParsedOpencodeEvent {
   // El texto útil llega en eventos {"type":"text"} con part.text completo.
   if (event.type === "text" && typeof event.part?.text === "string") {
     parsed.text = event.part.text;
+  }
+
+  // El razonamiento llega como {"type":"reasoning"} con part.text completo
+  // (con --thinking; el CLI lo oculta por defecto).
+  if (event.type === "reasoning" && typeof event.part?.text === "string") {
+    parsed.thinking = event.part.text;
   }
 
   // step_finish trae el coste acumulado del run.
@@ -96,6 +107,8 @@ export function buildOpencodeArgs(
   const args = ["run", "--format", "json"];
   if (options.model) args.push("--model", options.model);
   if (options.sessionId) args.push("--session", options.sessionId);
+  // El CLI oculta el thinking por defecto; --thinking lo incluye en el stream.
+  if (config.thinking !== false) args.push("--thinking");
   // Plan → agente read-only de opencode; edit → build (default) + --auto si aplica.
   if ((options.mode ?? "edit") === "plan") {
     args.push("--agent", "plan");
@@ -164,16 +177,18 @@ export class OpencodeAdapter implements AgentAdapter {
       const args = buildOpencodeArgs(options, this.config);
 
       let settled = false;
+      const timerRef: { current?: ReturnType<typeof setTimeout> } = {};
       const finish = (fn: () => void): void => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
+        if (timerRef.current !== undefined) clearTimeout(timerRef.current);
         fn();
       };
 
       let sessionId: string | undefined;
       let costUsd: number | undefined;
       const texts: string[] = [];
+      const thinkingParts: string[] = [];
 
       const timeoutMs = this.config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
       const { close, controller } = spawnProcess(
@@ -190,6 +205,13 @@ export class OpencodeAdapter implements AgentAdapter {
               // El texto parcial acumulado alimenta el streaming del chat.
               options.onText?.(texts.join("\n\n"));
             }
+            if (
+              parsed.thinking !== undefined &&
+              !thinkingParts.includes(parsed.thinking)
+            ) {
+              thinkingParts.push(parsed.thinking);
+              options.onThinking?.(thinkingParts.join("\n\n"));
+            }
           },
           onStderrLine: (line) => {
             if (line) process.stderr.write(`[opencode] ${line}\n`);
@@ -197,7 +219,7 @@ export class OpencodeAdapter implements AgentAdapter {
         },
       );
 
-      const timer = setTimeout(() => {
+      timerRef.current = setTimeout(() => {
         void controller.kill();
         finish(() =>
           reject(new Error(`opencode excedió el timeout de ${timeoutMs}ms`)),
@@ -222,6 +244,10 @@ export class OpencodeAdapter implements AgentAdapter {
                 text,
                 sessionId,
                 costUsd,
+                thinking:
+                  thinkingParts.length > 0
+                    ? thinkingParts.join("\n\n")
+                    : undefined,
               });
             }
           });

@@ -73,6 +73,8 @@ export interface BotConfig {
   shellEnabled?: boolean;
   /** Timeout de los comandos "!cmd". Default: 300_000 (5 min). */
   shellTimeoutMs?: number;
+  /** Mostrar el razonamiento (thinking) del agente en el chat. Default: true. */
+  thinking?: boolean;
   claude?: ClaudeAdapterConfig;
   opencode?: OpencodeAdapterConfig;
 }
@@ -118,7 +120,11 @@ export function createBot(config: BotConfig): T2ABot {
   const dbPath = config.dbPath ?? path.join(cwd, DEFAULT_DB_FILENAME);
 
   const claude = new ClaudeAdapter({ cwd, ...config.claude });
-  const opencode = new OpencodeAdapter({ cwd, ...config.opencode });
+  const opencode = new OpencodeAdapter({
+    cwd,
+    thinking: config.thinking,
+    ...config.opencode,
+  });
   const adapters: Record<AgentName, AgentAdapter> = { claude, opencode };
 
   const store = new StateStore(dbPath, {

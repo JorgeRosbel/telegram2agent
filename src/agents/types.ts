@@ -24,6 +24,8 @@ export interface RunOptions {
   onPermission?: (request: PermissionRequest) => Promise<boolean>;
   /** Texto parcial mientras el agente trabaja. */
   onText?: (partialText: string) => void;
+  /** Razonamiento (thinking) parcial acumulado, si el modelo lo emite. */
+  onThinking?: (partialThinking: string) => void;
 }
 
 export interface RunResult {
@@ -32,6 +34,8 @@ export interface RunResult {
   sessionId?: string;
   costUsd?: number;
   durationMs?: number;
+  /** Razonamiento completo del run, si el modelo lo emitió. */
+  thinking?: string;
 }
 
 export interface RunHandle {

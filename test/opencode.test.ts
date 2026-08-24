@@ -12,12 +12,34 @@ const TEXT_PART =
 const STEP_FINISH =
   '{"type":"step_finish","timestamp":1787577697630,"sessionID":"ses_fcc112372ffe6XCYva2ow4XyjT","part":{"id":"prt_033ef05520015IIc00rA0BdO8A","reason":"stop","snapshot":"657d540eab647895f6f2035059eca3625c2ce16b","messageID":"msg_033eede1d001WaRaSo9pnB0C3J","sessionID":"ses_fcc112372ffe6XCYva2ow4XyjT","type":"step-finish","tokens":{"total":8775,"input":1439,"output":31,"reasoning":9,"cache":{"write":0,"read":7296}},"cost":0}}';
 
+const REASONING_PART = JSON.stringify({
+  type: "reasoning",
+  timestamp: 1787577697500,
+  sessionID: "ses_fcc112372ffe6XCYva2ow4XyjT",
+  part: {
+    id: "prt_reasoning_1",
+    messageID: "msg_033eede1d001WaRaSo9pnB0C3J",
+    sessionID: "ses_fcc112372ffe6XCYva2ow4XyjT",
+    type: "reasoning",
+    text: "El usuario saluda; respondo breve y en español.",
+  },
+});
+
 describe("parseOpencodeEvent", () => {
   it('extrae el texto del evento {"type":"text"}', () => {
     const parsed = parseOpencodeEvent(TEXT_PART);
     expect(parsed.text).toBe("¡Hola! ¿En qué puedo ayudarte hoy?");
     expect(parsed.sessionId).toBe("ses_fcc112372ffe6XCYva2ow4XyjT");
     expect(parsed.costUsd).toBeUndefined();
+  });
+
+  it('extrae el thinking del evento {"type":"reasoning"}', () => {
+    const parsed = parseOpencodeEvent(REASONING_PART);
+    expect(parsed.thinking).toBe(
+      "El usuario saluda; respondo breve y en español.",
+    );
+    expect(parsed.sessionId).toBe("ses_fcc112372ffe6XCYva2ow4XyjT");
+    expect(parsed.text).toBeUndefined();
   });
 
   it("ignora step_start pero captura su sessionID", () => {
