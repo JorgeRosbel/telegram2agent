@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+examples/
+*.log
+.DS_Store
+.env
+.telegram2agent.json

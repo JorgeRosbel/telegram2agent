@@ -1,0 +1,84 @@
+{
+  "name": "@ariaskit/telegram2agent",
+  "version": "0.1.0",
+  "description": "Convierte interacciones de Telegram en acciones para agentes de IA.",
+  "type": "module",
+  "license": "MIT",
+  "author": "JorgeRosbel",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs",
+      "default": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "files": [
+    "dist",
+    "readme.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "gen:models": "node scripts/gen-opencode-models.mjs",
+    "build": "tsdown",
+    "example": "pnpm run build -s && tsx examples/quickstart.ts",
+    "example:dev": "pnpm run build -s && tsx examples/dev-assistant.ts",
+    "watch": "tsdown --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write \"**/*.{js,ts,mjs,json,md,yml,yaml}\"",
+    "check": "prettier --check \"**/*.{js,ts,mjs,json,md,yml,yaml}\"",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "verify": "pnpm run lint && pnpm run typecheck && pnpm run test:run && pnpm run build",
+    "prepare": "husky",
+    "prepublishOnly": "pnpm run verify"
+  },
+  "lint-staged": {
+    "*.{js,ts,mjs}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  },
+  "packageManager": "pnpm@11.5.3",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JorgeRosbel/telegram2agent.git"
+  },
+  "bugs": {
+    "url": "https://github.com/JorgeRosbel/telegram2agent/issues"
+  },
+  "homepage": "https://github.com/JorgeRosbel/telegram2agent#readme",
+  "keywords": [
+    "typescript",
+    "telegram",
+    "agent",
+    "ai"
+  ],
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.2.0",
+    "eslint": "^10.9.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.3.0",
+    "prettier": "^3.9.6",
+    "tsdown": "^0.22.14",
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.67.0",
+    "unrun": "^0.3.1",
+    "vitest": "^4.1.11"
+  },
+  "dependencies": {
+    "grammy": "^1.45.1"
+  }
+}
