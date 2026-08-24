@@ -24,6 +24,7 @@ import {
   sendFiles,
 } from "./media";
 import { StreamEditor } from "./streaming";
+import { parseShellCommand, runShell, type ShellResult } from "./shell";
 
 export interface TelegramLayerOptions {
   token: string;
@@ -36,12 +37,17 @@ export interface TelegramLayerOptions {
   approvalTimeoutMs?: number;
   defaultMode?: AgentMode;
   footer?: (result: RunResult) => string;
+  /** Mensajes "!cmd" se ejecutan en la terminal. Default: true. */
+  shellEnabled?: boolean;
+  /** Timeout de los comandos "!cmd". Default: 300_000 (5 min). */
+  shellTimeoutMs?: number;
 }
 
 const HELP = [
   "*telegram2agent* — tu agente CLI por Telegram",
   "",
   "• Escribe un mensaje → lo responde el agente activo",
+  "• `!comando` → lo ejecuta en la terminal del proyecto (ej. `!pnpm test`)",
   "• Envía una foto o documento → llega como adjunto al agente",
   "• Responde (reply) a un mensaje del bot → continúa esa sesión",
   "",
@@ -228,7 +234,15 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
 
   // ── Texto libre → pregunta al agente ────────────────────────────────────
   bot.on("message:text", (ctx) => {
-    if (ctx.msg.text.startsWith("/")) return;
+    const text = ctx.msg.text;
+    if (text.startsWith("/")) return;
+    if (options.shellEnabled !== false) {
+      const command = parseShellCommand(text);
+      if (command !== undefined) {
+        void handleShellCommand(ctx, command);
+        return;
+      }
+    }
     void handlePrompt(ctx);
   });
 
@@ -297,6 +311,39 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
     }
 
     await runForeground(ctx, ctx.msg?.text ?? "", [], undefined, sessionId);
+  }
+
+  /** Ejecuta un comando "!cmd" en la terminal del proyecto y responde con su salida. */
+  async function handleShellCommand(
+    ctx: Context,
+    command: string,
+  ): Promise<void> {
+    const chatId = chatIdOf(ctx);
+    const progress = await ctx.reply(`⚙️ Ejecutando: ${command}`);
+
+    const handle = runShell(command, {
+      cwd,
+      timeoutMs: options.shellTimeoutMs,
+    });
+    const task = registry.create(`$ ${command}`.slice(0, 80), chatId);
+    task.bind(async () => handle.cancel());
+
+    const result = await handle.result();
+    task.complete({
+      ok: !result.killed && result.exitCode === 0,
+      text: [result.stdout, result.stderr].filter(Boolean).join("\n"),
+      durationMs: result.durationMs,
+    });
+
+    await ctx.api.editMessageText(
+      chatId,
+      progress.message_id,
+      shellReplyHtml(result),
+      {
+        parse_mode: "HTML",
+        link_preview_options: { is_disabled: true },
+      },
+    );
   }
 
   /** Ejecuta una pregunta interactiva con streaming y entrega de archivos. */
@@ -420,6 +467,41 @@ function defaultFooter(result: RunResult): string {
   if (result.durationMs !== undefined)
     parts.push(`⏱ ${(result.durationMs / 1000).toFixed(1)}s`);
   return parts.length > 0 ? parts.join(" · ") : "";
+}
+
+const SHELL_OUTPUT_LIMIT = 3_500;
+
+function shellStatusLine(result: ShellResult): string {
+  const seconds = (result.durationMs / 1000).toFixed(1);
+  if (result.killed) {
+    return `🛑 terminado por ${result.signal ?? "cancelación"} · ${seconds}s`;
+  }
+  if (result.exitCode === 0) return `✅ exit 0 · ${seconds}s`;
+  const reason =
+    result.exitCode !== null
+      ? `exit ${result.exitCode}`
+      : `señal ${result.signal ?? "?"}`;
+  return `❌ ${reason} · ${seconds}s`;
+}
+
+function shellReplyHtml(result: ShellResult): string {
+  const header = `$ ${result.command}\n${shellStatusLine(result)}`;
+  const output = [result.stdout, result.stderr]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join("\n");
+  const suffix =
+    result.outputTruncated || output.length > SHELL_OUTPUT_LIMIT ? "\n…" : "";
+  const body =
+    output.length > 0 ? output.slice(0, SHELL_OUTPUT_LIMIT) : "(sin salida)";
+  return `${escapeHtml(header)}\n<pre>${escapeHtml(body)}${suffix}</pre>`;
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function truncate(text: string, max: number): string {

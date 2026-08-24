@@ -32,6 +32,7 @@ bot.run("genera los screenshots del sitio").onDone((info) => {
 | Acción                                   | Resultado                                                           |
 | ---------------------------------------- | ------------------------------------------------------------------- |
 | Mensaje de texto                         | Pregunta al agente activo; respuesta con streaming + coste/duración |
+| `!comando` (ej. `!pnpm test`)            | Ejecuta el comando en la terminal del proyecto y devuelve su salida |
 | Responder (reply) a un mensaje del bot   | Continúa esa sesión exacta (`--resume` / `--session`)               |
 | Foto o documento                         | Se descarga y llega como adjunto al agente                          |
 | `/model`                                 | Inline keyboard; la elección queda como **default persistente**     |
@@ -65,6 +66,8 @@ createBot({
   defaults?: { agent?, model? };
   approvalTimeoutMs?: number;           // default 120_000
   taskTimeoutMs?: number;               // default 1_800_000
+  shellEnabled?: boolean;               // default true — mensajes "!cmd" en la terminal
+  shellTimeoutMs?: number;              // default 300_000 (5 min)
   claude?: { models?, permissionMode?, timeoutMs?, bin? };
   opencode?: { models?, autoApprove?, timeoutMs?, bin? };
 });
@@ -72,6 +75,7 @@ createBot({
 
 Notas:
 
+- **`!comandos`**: cualquier chat de la `allow` puede ejecutar comandos arbitrarios en `cwd` (mismo nivel de confianza que el agente en modo edit). Aparecen en `/tasks` y se pueden cancelar con `/cancel <id>`; la salida se trunca a ~3.500 caracteres.
 - **Claude Code**: el modelo usa alias nativos (`sonnet`, `opus`, `haiku`). Sin aprobadores conectados corre con `--permission-mode acceptEdits`.
 - **OpenCode**: declara sus modelos con `opencode: { models: ['anthropic/claude-sonnet-4', …] }`. La aprobación interactiva por botones es exclusiva de Claude en v1; OpenCode corre con permisos denegados salvo `autoApprove: true` (`--auto`).
 

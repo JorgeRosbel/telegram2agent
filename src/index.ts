@@ -26,6 +26,8 @@ export { ClaudeAdapter } from "./agents/claude";
 export { OpencodeAdapter, parseOpencodeModels } from "./agents/opencode";
 export { sanitizeForTelegram } from "./bot/format";
 export { collectOutboundFiles, resolveWithin, sendFiles } from "./bot/media";
+export { parseShellCommand, runShell } from "./bot/shell";
+export type { ShellHandle, ShellOptions, ShellResult } from "./bot/shell";
 export type {
   AgentMode,
   AgentName,
@@ -67,6 +69,10 @@ export interface BotConfig {
   approvalTimeoutMs?: number;
   /** Timeout máximo por ejecución del agente. Default: 30 min. */
   taskTimeoutMs?: number;
+  /** Mensajes "!cmd" se ejecutan en la terminal del proyecto. Default: true. */
+  shellEnabled?: boolean;
+  /** Timeout de los comandos "!cmd". Default: 300_000 (5 min). */
+  shellTimeoutMs?: number;
   claude?: ClaudeAdapterConfig;
   opencode?: OpencodeAdapterConfig;
 }
@@ -138,6 +144,8 @@ export function createBot(config: BotConfig): T2ABot {
     approvals,
     approvalTimeoutMs: config.approvalTimeoutMs,
     defaultMode: config.defaults?.mode,
+    shellEnabled: config.shellEnabled,
+    shellTimeoutMs: config.shellTimeoutMs,
   });
 
   function resolveAgent(agent?: AgentName): AgentAdapter {
