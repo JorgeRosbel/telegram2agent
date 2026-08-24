@@ -10,9 +10,11 @@ import type {
 import type { ApprovalBridge } from "../tasks/approvals";
 import type { StateStore } from "../state/store";
 import type { TaskRegistry } from "../tasks/registry";
+import { VERSION } from "../version";
 import {
   approvalKeyboard,
   agentsKeyboard,
+  effortsKeyboard,
   modelsKeyboard,
   modesKeyboard,
 } from "./keyboards";
@@ -41,6 +43,10 @@ export interface TelegramLayerOptions {
   shellEnabled?: boolean;
   /** Timeout de los comandos "!cmd". Default: 300_000 (5 min). */
   shellTimeoutMs?: number;
+  /** Thinking del agente visible en el chat. Default: true. */
+  thinking?: boolean;
+  /** Timeout máximo por ejecución del agente. Default: 30 min. */
+  taskTimeoutMs?: number;
 }
 
 const HELP = [
@@ -55,6 +61,8 @@ const HELP = [
   "`/model` — elegir modelo (queda como default)",
   "`/agent` — cambiar entre Claude Code y OpenCode",
   "`/mode` — modo plan (solo lectura) o editar (aplica cambios)",
+  "`/effort` — reasoning effort del agente (low…max)",
+  "`/config` — ver la configuración (sin credenciales)",
   "`/tasks` — tareas en segundo plano",
   "`/status <id>` — estado de una tarea",
   "`/cancel <id>` — cancelar una tarea",
@@ -136,6 +144,42 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
       parse_mode: "HTML",
       reply_markup: modesKeyboard(store.modeFor(store.agent, defaultMode)),
     });
+  });
+
+  bot.command("effort", (ctx) => {
+    const agent = store.agent;
+    const effort = store.effortFor(agent);
+    void ctx.reply(
+      replyHtml(
+        `Reasoning effort de *${agent}*: *${effort ?? "default"}*\nElegir nivel (persistente por agente):`,
+      ),
+      {
+        parse_mode: "HTML",
+        reply_markup: effortsKeyboard(agent, effort),
+      },
+    );
+  });
+
+  bot.command("config", (ctx) => {
+    const agent = store.agent;
+    const shellTimeoutS = Math.round(
+      (options.shellTimeoutMs ?? 300_000) / 1000,
+    );
+    const lines = [
+      "*Configuración del bot*",
+      `- agente activo: *${agent}*`,
+      `- modelo ${agent}: \`${store.modelFor(agent) ?? "(default)"}\``,
+      `- modo ${agent}: *${store.modeFor(agent, defaultMode)}*`,
+      `- effort ${agent}: *${store.effortFor(agent) ?? "default"}*`,
+      `- thinking: *${options.thinking !== false ? "activado 🧠" : "desactivado"}*`,
+      `- shell: *${options.shellEnabled !== false ? "activado" : "desactivado"}* (timeout ${shellTimeoutS}s)`,
+      `- aprobaciones: ${Math.round(approvalTimeoutMs / 1000)}s`,
+      `- timeout tarea: ${Math.round((options.taskTimeoutMs ?? 1_800_000) / 60000)} min`,
+      `- cwd: \`${cwd}\``,
+      `- versión: \`${VERSION}\``,
+      `- token: \`*******\``,
+    ];
+    void ctx.reply(replyHtml(lines.join("\n")), { parse_mode: "HTML" });
   });
 
   bot.command("tasks", (ctx) => {
@@ -222,6 +266,19 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
     await ctx.answerCallbackQuery({ text: `Modo: ${label}` });
     await ctx.editMessageText(
       replyHtml(`✅ Modo de *${store.agent}*: ${label}`),
+      {
+        parse_mode: "HTML",
+      },
+    );
+  });
+
+  bot.callbackQuery(/^effort:(.+)$/, async (ctx) => {
+    const value = ctx.match[1];
+    const effort = value === "default" ? undefined : value;
+    await store.setEffort(store.agent, effort);
+    await ctx.answerCallbackQuery({ text: `Effort: ${effort ?? "default"}` });
+    await ctx.editMessageText(
+      replyHtml(`✅ Effort de *${store.agent}*: *${effort ?? "default"}*`),
       {
         parse_mode: "HTML",
       },
@@ -443,6 +500,7 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
     const handle = adapter.run({
       prompt: opts.prompt,
       model: store.modelFor(adapter.name),
+      effort: store.effortFor(adapter.name),
       sessionId: opts.sessionId,
       mode: opts.mode,
       cwd,

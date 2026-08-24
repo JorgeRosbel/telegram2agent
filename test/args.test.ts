@@ -33,6 +33,12 @@ describe("buildClaudeArgs", () => {
     const args = buildClaudeArgs({ prompt: "x", sessionId: "ses-1" });
     expect(args.join(" ")).toContain("--resume ses-1");
   });
+
+  it("reasoning effort con --effort solo si se pide", () => {
+    expect(buildClaudeArgs({ prompt: "x" })).not.toContain("--effort");
+    const args = buildClaudeArgs({ prompt: "x", effort: "high" });
+    expect(args.join(" ")).toContain("--effort high");
+  });
 });
 
 describe("buildOpencodeArgs", () => {
@@ -67,5 +73,11 @@ describe("buildOpencodeArgs", () => {
   it("archivos adjuntos como --file", () => {
     const args = buildOpencodeArgs({ prompt: "x", files: ["/tmp/f.png"] });
     expect(args.join(" ")).toContain("--file /tmp/f.png");
+  });
+
+  it("reasoning effort con --variant solo si se pide", () => {
+    expect(buildOpencodeArgs({ prompt: "x" })).not.toContain("--variant");
+    const args = buildOpencodeArgs({ prompt: "x", effort: "max" });
+    expect(args.join(" ")).toContain("--variant max");
   });
 });

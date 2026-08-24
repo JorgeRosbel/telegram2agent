@@ -100,7 +100,7 @@ export function parseOpencodeEvent(line: string): ParsedOpencodeEvent {
 export function buildOpencodeArgs(
   options: Pick<
     RunOptions,
-    "model" | "sessionId" | "mode" | "files" | "prompt" | "cwd"
+    "model" | "sessionId" | "mode" | "files" | "prompt" | "cwd" | "effort"
   >,
   config: OpencodeAdapterConfig = {},
 ): string[] {
@@ -109,6 +109,8 @@ export function buildOpencodeArgs(
   if (options.sessionId) args.push("--session", options.sessionId);
   // El CLI oculta el thinking por defecto; --thinking lo incluye en el stream.
   if (config.thinking !== false) args.push("--thinking");
+  // --variant es el reasoning effort provider-specific del CLI.
+  if (options.effort) args.push("--variant", options.effort);
   // Plan → agente read-only de opencode; edit → build (default) + --auto si aplica.
   if ((options.mode ?? "edit") === "plan") {
     args.push("--agent", "plan");

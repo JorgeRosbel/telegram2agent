@@ -15,6 +15,8 @@ export interface RunOptions {
   model?: string;
   /** plan → solo lectura; edit → puede modificar (con aprobaciones). Default: edit. */
   mode?: AgentMode;
+  /** Nivel de razonamiento (--effort en claude, --variant en opencode). */
+  effort?: string;
   /** ID de sesión a continuar (--resume / --session). */
   sessionId?: string;
   cwd?: string;

@@ -37,6 +37,8 @@ bot.run("genera los screenshots del sitio").onDone((info) => {
 | Foto o documento                         | Se descarga y llega como adjunto al agente                          |
 | `/model`                                 | Inline keyboard; la elección queda como **default persistente**     |
 | `/agent`                                 | Cambiar entre Claude Code y OpenCode                                |
+| `/effort`                                | Reasoning effort por agente (`--effort` / `--variant`)              |
+| `/config`                                | Ver la configuración actual (token enmascarado)                     |
 | `/tasks`, `/status <id>`, `/cancel <id>` | Tareas en segundo plano                                             |
 | `/file <ruta>`                           | Envía un archivo del proyecto (imágenes como foto)                  |
 
@@ -63,7 +65,7 @@ createBot({
   allow: Array<number | string>;        // chat IDs o "@username"
   cwd?: string;
   dbPath?: string;                      // default <cwd>/.telegram2agent.json
-  defaults?: { agent?, model? };
+  defaults?: { agent?, model?, mode?, effort? };
   approvalTimeoutMs?: number;           // default 120_000
   taskTimeoutMs?: number;               // default 1_800_000
   shellEnabled?: boolean;               // default true — mensajes "!cmd" en la terminal

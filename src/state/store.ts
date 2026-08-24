@@ -9,12 +9,14 @@ export interface PersistedState {
   models: Partial<Record<AgentName, string>>;
   /** Modo de trabajo por agente (persistente vía /mode). */
   modes: Partial<Record<AgentName, AgentMode>>;
+  /** Nivel de razonamiento por agente (persistente vía /effort). */
+  efforts: Partial<Record<AgentName, string>>;
   /** Última sesión por chat y agente, para continuar con reply. */
   sessions: Record<string, Partial<Record<AgentName, string>>>;
 }
 
 export function emptyState(agent: AgentName = "claude"): PersistedState {
-  return { agent, models: {}, modes: {}, sessions: {} };
+  return { agent, models: {}, modes: {}, efforts: {}, sessions: {} };
 }
 
 export class StateStore {
@@ -34,6 +36,7 @@ export class StateStore {
         agent: parsed.agent ?? this.state.agent,
         models: { ...this.state.models, ...parsed.models },
         modes: { ...this.state.modes, ...parsed.modes },
+        efforts: { ...this.state.efforts, ...parsed.efforts },
         sessions: { ...this.state.sessions, ...parsed.sessions },
       };
     } catch {
@@ -72,6 +75,16 @@ export class StateStore {
 
   async setMode(agent: AgentName, mode: AgentMode): Promise<void> {
     this.state.modes[agent] = mode;
+    await this.persist();
+  }
+
+  effortFor(agent: AgentName): string | undefined {
+    return this.state.efforts[agent];
+  }
+
+  async setEffort(agent: AgentName, effort: string | undefined): Promise<void> {
+    if (effort === undefined) delete this.state.efforts[agent];
+    else this.state.efforts[agent] = effort;
     await this.persist();
   }
 

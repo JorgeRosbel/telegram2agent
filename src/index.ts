@@ -64,6 +64,8 @@ export interface BotConfig {
     model?: Partial<Record<AgentName, AnyModel>>;
     /** 'plan' = solo lectura · 'edit' = aplica cambios (default). */
     mode?: AgentMode;
+    /** Reasoning effort inicial para ambos agentes (--effort / --variant). */
+    effort?: string;
   };
   /** Timeout para aprobar acciones sensibles desde Telegram. Default: 120s. */
   approvalTimeoutMs?: number;
@@ -96,7 +98,7 @@ export interface T2ABot {
   readonly grammy: Bot;
 }
 
-export interface AskOptions extends Pick<RunOptions, "onText"> {
+export interface AskOptions extends Pick<RunOptions, "onText" | "effort"> {
   agent?: AgentName;
   model?: string;
   mode?: AgentMode;
@@ -133,6 +135,9 @@ export function createBot(config: BotConfig): T2ABot {
     modes: config.defaults?.mode
       ? { [config.defaults.agent ?? "claude"]: config.defaults.mode }
       : {},
+    efforts: config.defaults?.effort
+      ? { [config.defaults.agent ?? "claude"]: config.defaults.effort }
+      : {},
   });
 
   const registry = new TaskRegistry(config.taskTimeoutMs ?? 30 * 60 * 1000);
@@ -152,6 +157,8 @@ export function createBot(config: BotConfig): T2ABot {
     defaultMode: config.defaults?.mode,
     shellEnabled: config.shellEnabled,
     shellTimeoutMs: config.shellTimeoutMs,
+    thinking: config.thinking,
+    taskTimeoutMs: config.taskTimeoutMs,
   });
 
   function resolveAgent(agent?: AgentName): AgentAdapter {
@@ -172,6 +179,7 @@ export function createBot(config: BotConfig): T2ABot {
       .run({
         prompt,
         model: options?.model ?? store.modelFor(adapter.name),
+        effort: options?.effort ?? store.effortFor(adapter.name),
         sessionId: store.sessionFor(primaryChatId(), adapter.name),
         mode: options?.mode,
         cwd,
@@ -201,6 +209,7 @@ export function createBot(config: BotConfig): T2ABot {
       const handle = adapter.run({
         prompt,
         model: options?.model ?? store.modelFor(adapter.name),
+        effort: options?.effort ?? store.effortFor(adapter.name),
         mode: options?.mode,
         cwd,
       });

@@ -160,7 +160,7 @@ export function buildPrompt(
 export function buildClaudeArgs(
   options: Pick<
     RunOptions,
-    "model" | "sessionId" | "mode" | "onPermission" | "prompt"
+    "model" | "sessionId" | "mode" | "onPermission" | "prompt" | "effort"
   >,
   config: ClaudeAdapterConfig = {},
 ): string[] {
@@ -176,6 +176,7 @@ export function buildClaudeArgs(
     TELEGRAM_FORMAT_INSTRUCTION,
   ];
   if (options.model) args.push("--model", options.model);
+  if (options.effort) args.push("--effort", options.effort);
   if (options.sessionId) args.push("--resume", options.sessionId);
 
   const mode = options.mode ?? "edit";

@@ -22,6 +22,23 @@ describe("StateStore", () => {
     await rm(path.dirname(file), { recursive: true });
   });
 
+  it("persiste y borra el effort por agente", async () => {
+    const file = await tmpFile();
+    const store = new StateStore(file);
+    await store.setEffort("claude", "xhigh");
+    expect(store.effortFor("claude")).toBe("xhigh");
+    expect(store.effortFor("opencode")).toBeUndefined();
+
+    const second = new StateStore(file);
+    await second.load();
+    expect(second.effortFor("claude")).toBe("xhigh");
+
+    await second.setEffort("claude", undefined);
+    const raw = JSON.parse(await readFile(file, "utf8"));
+    expect(raw.efforts.claude).toBeUndefined();
+    await rm(path.dirname(file), { recursive: true });
+  });
+
   it("recupera el estado tras reiniciar", async () => {
     const file = await tmpFile();
     const first = new StateStore(file);

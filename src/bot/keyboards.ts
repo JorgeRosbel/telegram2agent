@@ -49,3 +49,29 @@ export function modesKeyboard(current: AgentMode): InlineKeyboard {
 }
 
 export const AGENT_NAMES = Object.keys(AGENT_LABELS) as AgentName[];
+
+const EFFORT_LEVELS: Record<AgentName, string[]> = {
+  claude: ["low", "medium", "high", "xhigh", "max"],
+  opencode: ["minimal", "low", "medium", "high", "max"],
+};
+
+/** Niveles de reasoning effort que acepta cada CLI. */
+export function effortLevels(agent: AgentName): string[] {
+  return EFFORT_LEVELS[agent];
+}
+
+export function effortsKeyboard(
+  agent: AgentName,
+  current: string | undefined,
+): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  const levels = effortLevels(agent);
+  for (const [index, level] of levels.entries()) {
+    const mark = level === current ? " ✓" : "";
+    keyboard.text(`${level}${mark}`, `effort:${level}`);
+    if ((index + 1) % 3 === 0) keyboard.row();
+  }
+  const mark = current === undefined ? " ✓" : "";
+  keyboard.text(`default${mark}`, "effort:default");
+  return keyboard;
+}
