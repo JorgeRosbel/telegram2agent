@@ -3,6 +3,6 @@ import { VERSION } from "@/index";
 
 describe("VERSION", () => {
   it("expone la versión inyectada en build", () => {
-    expect(VERSION).toBe("0.1.0");
+    expect(VERSION).toBe("0.1.1");
   });
 });
