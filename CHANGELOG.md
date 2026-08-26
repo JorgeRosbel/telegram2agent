@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.1
+
+### Added
+
+- `ClaudeEffort`/`KnownClaudeEffort` y `OpenCodeEffort`/`KnownOpenCodeEffort`: reasoning effort tipado (autocomplete + string libre), igual que los modelos. `AnyEffort` para `BotConfig.defaults.effort`/`AskOptions.effort`.
+- Niveles de effort de OpenCode ampliados con `xhigh` (verificado contra el schema `reasoningEffort` del binario instalado).
+
+### Fixed
+
+- `defaults.effort` solo se aplicaba al agente por defecto al arrancar; ahora aplica a `claude` y `opencode` por igual, como ya decía su propio doc-comment.
+- `thinking: false` no tenía ningún efecto en Claude (solo apagaba el `--thinking` de OpenCode); ahora también filtra el bloque de razonamiento mostrado en Telegram para Claude.
+
 ## 0.2.0
 
 ### Added

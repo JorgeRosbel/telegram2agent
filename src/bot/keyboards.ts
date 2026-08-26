@@ -1,5 +1,7 @@
 import { InlineKeyboard } from "grammy";
 import type { AgentMode, AgentName } from "../agents/types";
+import { KNOWN_CLAUDE_EFFORTS } from "../agents/claude";
+import { KNOWN_OPENCODE_EFFORTS } from "../agents/opencode";
 
 export function modelsKeyboard(models: string[]): InlineKeyboard {
   const keyboard = new InlineKeyboard();
@@ -50,9 +52,16 @@ export function modesKeyboard(current: AgentMode): InlineKeyboard {
 
 export const AGENT_NAMES = Object.keys(AGENT_LABELS) as AgentName[];
 
+/**
+ * Reexporta los niveles tipados de cada adapter (fuente única de verdad:
+ * `KNOWN_CLAUDE_EFFORTS` en claude.ts, `KNOWN_OPENCODE_EFFORTS` en
+ * opencode.ts) — "none" (desactiva el razonamiento en OpenCode) se deja
+ * fuera del teclado porque ya existe el botón "default" para no mandar
+ * --variant en absoluto.
+ */
 const EFFORT_LEVELS: Record<AgentName, string[]> = {
-  claude: ["low", "medium", "high", "xhigh", "max"],
-  opencode: ["minimal", "low", "medium", "high", "max"],
+  claude: [...KNOWN_CLAUDE_EFFORTS],
+  opencode: [...KNOWN_OPENCODE_EFFORTS],
 };
 
 /** Niveles de reasoning effort que acepta cada CLI. */

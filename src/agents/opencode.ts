@@ -17,6 +17,25 @@ import { TELEGRAM_FORMAT_INSTRUCTION } from "../bot/format";
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 const MODELS_TIMEOUT_MS = 10_000;
 
+/**
+ * Niveles de `--variant` (reasoning effort) que acepta OpenCode. El CLI no
+ * trae una choices list fija — es texto libre, varía por proveedor/modelo —
+ * así que este set viene del schema `reasoningEffort` embebido en el
+ * binario instalado (cubre al menos los modelos "reasoning" estilo
+ * OpenAI/Anthropic). Cualquier string sigue siendo válido para variantes
+ * de otros proveedores.
+ */
+export const KNOWN_OPENCODE_EFFORTS = [
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
+export type KnownOpenCodeEffort = (typeof KNOWN_OPENCODE_EFFORTS)[number];
+export type OpenCodeEffort = KnownOpenCodeEffort | (string & {});
+
 /** Parsea la salida de `opencode models` (líneas `provider/model`). */
 export function parseOpencodeModels(stdout: string): string[] {
   return [

@@ -43,6 +43,21 @@ export type ClaudeModel = KnownClaudeModel | (string & {});
 
 const DEFAULT_MODELS: string[] = [...KNOWN_CLAUDE_MODELS];
 
+/**
+ * Niveles válidos de `claude --effort` — choices list fija y verificada
+ * contra `claude --help` de la CLI instalada (a diferencia de los modelos,
+ * este set es estable entre releases).
+ */
+export const KNOWN_CLAUDE_EFFORTS = [
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
+export type KnownClaudeEffort = (typeof KNOWN_CLAUDE_EFFORTS)[number];
+export type ClaudeEffort = KnownClaudeEffort | (string & {});
+
 interface ClaudeEvent {
   type?: string;
   subtype?: string;

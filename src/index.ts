@@ -3,9 +3,14 @@ import type { Bot } from "grammy";
 import {
   ClaudeAdapter,
   type ClaudeAdapterConfig,
+  type ClaudeEffort,
   type ClaudeModel,
 } from "./agents/claude";
-import { OpencodeAdapter, type OpencodeAdapterConfig } from "./agents/opencode";
+import {
+  OpencodeAdapter,
+  type OpencodeAdapterConfig,
+  type OpenCodeEffort,
+} from "./agents/opencode";
 import type { OpenCodeModel } from "./agents/opencode-models.generated";
 import type {
   AgentAdapter,
@@ -36,15 +41,23 @@ export type {
   RunOptions,
   RunResult,
 } from "./agents/types";
-export type { ClaudeModel, KnownClaudeModel } from "./agents/claude";
+export type {
+  ClaudeModel,
+  KnownClaudeModel,
+  ClaudeEffort,
+  KnownClaudeEffort,
+} from "./agents/claude";
 export type {
   OpenCodeModel,
   KnownOpenCodeModel,
 } from "./agents/opencode-models.generated";
+export type { OpenCodeEffort, KnownOpenCodeEffort } from "./agents/opencode";
 export type { Task, TaskStatus } from "./tasks/registry";
 
 /** Modelo de cualquier agente: autocomplete + cualquier string válido. */
 export type AnyModel = ClaudeModel | OpenCodeModel;
+/** Reasoning effort de cualquier agente: autocomplete + cualquier string válido. */
+export type AnyEffort = ClaudeEffort | OpenCodeEffort;
 
 export interface BotConfig {
   /** Token del bot de Telegram (@BotFather). */
@@ -64,8 +77,13 @@ export interface BotConfig {
     model?: Partial<Record<AgentName, AnyModel>>;
     /** 'plan' = solo lectura · 'edit' = aplica cambios (default). */
     mode?: AgentMode;
-    /** Reasoning effort inicial para ambos agentes (--effort / --variant). */
-    effort?: string;
+    /**
+     * Reasoning effort inicial, aplicado a ambos agentes (--effort en
+     * Claude, --variant en OpenCode) — cada uno lo interpreta con sus
+     * propios niveles válidos. Autocomplete con los niveles conocidos;
+     * acepta cualquier string.
+     */
+    effort?: AnyEffort;
   };
   /** Timeout para aprobar acciones sensibles desde Telegram. Default: 120s. */
   approvalTimeoutMs?: number;
@@ -119,10 +137,12 @@ export interface T2ABot {
   readonly grammy: Bot;
 }
 
-export interface AskOptions extends Pick<RunOptions, "onText" | "effort"> {
+export interface AskOptions extends Pick<RunOptions, "onText"> {
   agent?: AgentName;
   model?: string;
   mode?: AgentMode;
+  /** Autocomplete con los niveles conocidos del agente; acepta cualquier string. */
+  effort?: AnyEffort;
 }
 
 export interface RunTaskOptions extends AskOptions {
@@ -163,8 +183,11 @@ export function createBot(config: BotConfig): T2ABot {
     modes: config.defaults?.mode
       ? { [config.defaults.agent ?? "claude"]: config.defaults.mode }
       : {},
+    // A diferencia de `model` (namespaces distintos por agente), un mismo
+    // effort inicial tiene sentido para los dos — se aplica a ambos, no
+    // solo al agente por defecto.
     efforts: config.defaults?.effort
-      ? { [config.defaults.agent ?? "claude"]: config.defaults.effort }
+      ? { claude: config.defaults.effort, opencode: config.defaults.effort }
       : {},
   });
 

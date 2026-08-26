@@ -495,7 +495,12 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
 
     // El thinking va en mensaje aparte, después de la respuesta: así su id
     // cae en progressMessageId+1, que ya es ancla de sesión para replies.
-    if (result.thinking) {
+    //
+    // `options.thinking` solo controla el flag --thinking de OpenCode (sin
+    // él, el CLI ni emite el bloque). Claude no tiene un flag equivalente:
+    // emite thinking siempre que el modelo razona, así que hay que filtrar
+    // acá también — si no, `thinking: false` no tiene ningún efecto en Claude.
+    if (result.thinking && options.thinking !== false) {
       await sendThinking(ctx.api, chatId, result.thinking);
     }
 
