@@ -10,13 +10,27 @@ import type {
 import { parseJsonLine, spawnProcess } from "./spawn";
 import { TELEGRAM_FORMAT_INSTRUCTION } from "../bot/format";
 
-const DEFAULT_MODELS = ["opus", "sonnet", "haiku"];
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 
-/** Modelos con alias nativo en `claude --model`; cualquier string es válido. */
-export const KNOWN_CLAUDE_MODELS = ["opus", "sonnet", "haiku"] as const;
+/**
+ * Alias nativos de `claude --model` (verificados contra `claude --help` y el
+ * binario de la CLI instalada; no hay `claude models` para listarlos en vivo
+ * como con OpenCode). Cualquier string es válido igualmente: IDs versionados
+ * (p. ej. `claude-opus-5`) no se tipan aquí porque cambian con cada release
+ * y quedarían obsoletos.
+ */
+export const KNOWN_CLAUDE_MODELS = [
+  "opus",
+  "sonnet",
+  "haiku",
+  "fable",
+  "opusplan",
+  "best",
+] as const;
 export type KnownClaudeModel = (typeof KNOWN_CLAUDE_MODELS)[number];
 export type ClaudeModel = KnownClaudeModel | (string & {});
+
+const DEFAULT_MODELS: string[] = [...KNOWN_CLAUDE_MODELS];
 
 interface ClaudeEvent {
   type?: string;

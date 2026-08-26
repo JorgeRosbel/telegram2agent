@@ -78,7 +78,7 @@ createBot({
 Notas:
 
 - **`!comandos`**: cualquier chat de la `allow` puede ejecutar comandos arbitrarios en `cwd` (mismo nivel de confianza que el agente en modo edit). Aparecen en `/tasks` y se pueden cancelar con `/cancel <id>`; la salida se trunca a ~3.500 caracteres.
-- **Claude Code**: el modelo usa alias nativos (`sonnet`, `opus`, `haiku`). Sin aprobadores conectados corre con `--permission-mode acceptEdits`.
+- **Claude Code**: el modelo usa alias nativos (`sonnet`, `opus`, `haiku`, `fable`, `opusplan`, `best`) o cualquier ID versionado (`claude-opus-5`, …). Sin aprobadores conectados corre con `--permission-mode acceptEdits`.
 - **OpenCode**: declara sus modelos con `opencode: { models: ['anthropic/claude-sonnet-4', …] }`. La aprobación interactiva por botones es exclusiva de Claude en v1; OpenCode corre con permisos denegados salvo `autoApprove: true` (`--auto`).
 
 ## Desarrollo
