@@ -47,6 +47,8 @@ export interface TelegramLayerOptions {
   thinking?: boolean;
   /** Timeout máximo por ejecución del agente. Default: 30 min. */
   taskTimeoutMs?: number;
+  /** Auto mode real: no se piden aprobaciones por Telegram. Default: false. */
+  autoMode?: boolean;
 }
 
 const HELP = [
@@ -78,6 +80,7 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
   >();
   const approvalTimeoutMs = options.approvalTimeoutMs ?? 120_000;
   const defaultMode: AgentMode = options.defaultMode ?? "edit";
+  const autoMode = options.autoMode ?? false;
   let botUserId: number | undefined;
 
   // ── Seguridad: allowlist estricta antes de cualquier handler ────────────
@@ -173,6 +176,7 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
       `- effort ${agent}: *${store.effortFor(agent) ?? "default"}*`,
       `- thinking: *${options.thinking !== false ? "activado 🧠" : "desactivado"}*`,
       `- shell: *${options.shellEnabled !== false ? "activado" : "desactivado"}* (timeout ${shellTimeoutS}s)`,
+      `- auto mode: *${autoMode ? "activado ⚡ (sin aprobaciones)" : "desactivado"}*`,
       `- aprobaciones: ${Math.round(approvalTimeoutMs / 1000)}s`,
       `- timeout tarea: ${Math.round((options.taskTimeoutMs ?? 1_800_000) / 60000)} min`,
       `- cwd: \`${cwd}\``,
@@ -434,8 +438,10 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
     const editor = new StreamEditor(ctx.api, chatId, "HTML");
     const label = attachmentHint ? `📎 ${attachmentHint} · ` : "";
 
+    const modeLabel =
+      mode === "plan" ? "📋 plan" : autoMode ? "⚡ auto" : "✏️ edit";
     const progressMessageId = await editor.start(
-      `${label}🤖 ${agent} (${mode === "plan" ? "📋 plan" : "✏️ edit"}) está trabajando…`,
+      `${label}🤖 ${agent} (${modeLabel}) está trabajando…`,
     );
 
     // En plan no hay acciones sensibles que aprobar.
@@ -445,11 +451,24 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
       sessionId: sessionId ?? store.sessionFor(chatId, agent),
       mode,
       onPermission:
-        mode === "edit" && adapter.name === "claude"
+        mode === "edit" && adapter.name === "claude" && !autoMode
           ? (request) => askApproval(ctx, request)
           : undefined,
       onText: (partial) =>
         editor.update(toTelegramHtml(partial, { balanceFences: true })),
+      onUsageLimitWait: (info) => {
+        if (info.attempt !== 1) return;
+        const minutes = Math.round(info.retryInMs / 60000);
+        void ctx.api.sendMessage(
+          chatId,
+          replyHtml(
+            `⏳ *${agent}* alcanzó el límite de uso de tu plan actual. ` +
+              `El bot sigue funcionando — va a reintentar cada ${minutes} min ` +
+              "hasta que se restablezca, sin que tengas que hacer nada.",
+          ),
+          { parse_mode: "HTML" },
+        );
+      },
     });
 
     if (result.sessionId) {
@@ -495,6 +514,7 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
       mode?: AgentMode;
       onPermission?: (r: PermissionRequest) => Promise<boolean>;
       onText?: (partial: string) => void;
+      onUsageLimitWait?: (info: { attempt: number; retryInMs: number }) => void;
     },
   ): Promise<RunResult> {
     const handle = adapter.run({
@@ -507,6 +527,7 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
       files: opts.files,
       onPermission: opts.onPermission,
       onText: opts.onText,
+      onUsageLimitWait: opts.onUsageLimitWait,
     });
 
     const task = registry.create(opts.prompt.slice(0, 80), chatId);

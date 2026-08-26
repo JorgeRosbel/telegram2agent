@@ -3,6 +3,7 @@ import {
   buildControlResponse,
   buildPrompt,
   FILE_PROTOCOL_INSTRUCTION,
+  isUsageLimitError,
   parseClaudeEvent,
 } from "@/agents/claude";
 
@@ -127,5 +128,22 @@ describe("buildPrompt", () => {
     expect(prompt).toContain("hazme una gráfica");
     expect(prompt).toContain("/tmp/datos.csv");
     expect(prompt).toContain(FILE_PROTOCOL_INSTRUCTION);
+  });
+});
+
+describe("isUsageLimitError", () => {
+  it("detecta la frase del CLI, sin importar mayúsculas", () => {
+    expect(isUsageLimitError("Claude AI usage limit reached|1700000000")).toBe(
+      true,
+    );
+    expect(isUsageLimitError("USAGE LIMIT REACHED")).toBe(true);
+  });
+
+  it("no confunde otros errores (auth, red, timeout…)", () => {
+    expect(isUsageLimitError("Invalid API key")).toBe(false);
+    expect(isUsageLimitError("claude terminó con código 1 sin resultado")).toBe(
+      false,
+    );
+    expect(isUsageLimitError(undefined)).toBe(false);
   });
 });

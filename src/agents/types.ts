@@ -28,6 +28,14 @@ export interface RunOptions {
   onText?: (partialText: string) => void;
   /** Razonamiento (thinking) parcial acumulado, si el modelo lo emite. */
   onThinking?: (partialThinking: string) => void;
+  /**
+   * Se llama cuando el adapter detecta que se agotó el límite de uso del
+   * plan actual (no un error cualquiera) y va a esperar antes de
+   * reintentar automáticamente. `attempt` empieza en 1 en la primera
+   * espera; el adapter reintenta indefinidamente hasta que el CLI vuelva
+   * a responder o se cancele el run con `RunHandle.cancel()`.
+   */
+  onUsageLimitWait?: (info: { attempt: number; retryInMs: number }) => void;
 }
 
 export interface RunResult {
@@ -49,6 +57,11 @@ export interface AdapterOptions {
   cwd?: string;
   timeoutMs?: number;
   permissionMode?: string;
+  /**
+   * Cada cuánto reintentar cuando se agota el límite de uso del plan
+   * actual (no un error cualquiera). Default: 600_000 (10 min).
+   */
+  usageLimitRetryMs?: number;
 }
 
 /**

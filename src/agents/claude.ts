@@ -11,6 +11,17 @@ import { parseJsonLine, spawnProcess } from "./spawn";
 import { TELEGRAM_FORMAT_INSTRUCTION } from "../bot/format";
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
+const DEFAULT_USAGE_LIMIT_RETRY_MS = 10 * 60 * 1000;
+
+/**
+ * Detecta si un texto de error es específicamente "se agotó el límite de
+ * uso del plan actual" (la ventana de 5h/semanal de la suscripción), y no
+ * cualquier otro error (auth, red, bug del agente…). Confirmado como frase
+ * literal del CLI (`usage limit reached`) inspeccionando el binario.
+ */
+export function isUsageLimitError(text: string | undefined): boolean {
+  return text !== undefined && /usage limit reached/i.test(text);
+}
 
 /**
  * Alias nativos de `claude --model` (verificados contra `claude --help` y el
@@ -212,15 +223,20 @@ export class ClaudeAdapter implements AgentAdapter {
     return this.config.models ?? DEFAULT_MODELS;
   }
 
-  run(options: RunOptions): RunHandle {
+  /** Un único intento: spawnea `claude` una vez y resuelve/rechaza con el resultado. */
+  private attemptOnce(options: RunOptions): {
+    result: Promise<RunResult>;
+    kill: () => Promise<void>;
+  } {
     let kill: (() => Promise<void>) | undefined;
     let permissionSink:
       ((requestId: string, allow: boolean) => void) | undefined;
 
-    const resultPromise = new Promise<RunResult>((resolve, reject) => {
+    const result = new Promise<RunResult>((resolve, reject) => {
       const args = buildClaudeArgs(options, this.config);
 
       let settled = false;
+      let stderrText = "";
       const timerRef: { current?: ReturnType<typeof setTimeout> } = {};
       const finish = (fail: Error | undefined): void => {
         if (settled) return;
@@ -269,7 +285,10 @@ export class ClaudeAdapter implements AgentAdapter {
             }
           },
           onStderrLine: (line) => {
-            if (line) process.stderr.write(`[claude] ${line}\n`);
+            if (line) {
+              stderrText += `${line}\n`;
+              process.stderr.write(`[claude] ${line}\n`);
+            }
           },
         },
       );
@@ -286,11 +305,15 @@ export class ClaudeAdapter implements AgentAdapter {
       void close.then(({ code }) => {
         setTimeout(() => {
           if (!settled) {
+            // Un fallo duro (sin evento `result`) suele imprimir el motivo
+            // solo en stderr — lo incluimos para poder detectar ahí el
+            // límite de uso agotado, no solo en un `result` con is_error.
             finish(
               current
                 ? undefined
                 : new Error(
-                    `claude terminó con código ${code ?? 0} sin resultado`,
+                    stderrText.trim() ||
+                      `claude terminó con código ${code ?? 0} sin resultado`,
                   ),
             );
           }
@@ -309,10 +332,60 @@ export class ClaudeAdapter implements AgentAdapter {
       );
     });
 
+    return { result, kill: () => kill?.() ?? Promise.resolve() };
+  }
+
+  run(options: RunOptions): RunHandle {
+    let cancelled = false;
+    let killCurrent: () => Promise<void> = () => Promise.resolve();
+    let unblockWait: (() => void) | undefined;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const retryMs =
+      this.config.usageLimitRetryMs ?? DEFAULT_USAGE_LIMIT_RETRY_MS;
+
+    const resultPromise = (async (): Promise<RunResult> => {
+      for (let attempt = 1; ; attempt++) {
+        if (cancelled) throw new Error("Ejecución cancelada.");
+
+        const current = this.attemptOnce(options);
+        killCurrent = current.kill;
+        let outcome: RunResult | Error;
+        try {
+          outcome = await current.result;
+        } catch (error) {
+          outcome = error as Error;
+        }
+
+        const failureText =
+          outcome instanceof Error
+            ? outcome.message
+            : outcome.ok
+              ? undefined
+              : outcome.text;
+
+        if (!cancelled && isUsageLimitError(failureText)) {
+          options.onUsageLimitWait?.({ attempt, retryInMs: retryMs });
+          await new Promise<void>((resolve) => {
+            unblockWait = resolve;
+            retryTimer = setTimeout(resolve, retryMs);
+          });
+          retryTimer = undefined;
+          unblockWait = undefined;
+          continue;
+        }
+
+        if (outcome instanceof Error) throw outcome;
+        return outcome;
+      }
+    })();
+
     return {
       result: () => resultPromise,
       cancel: async () => {
-        await kill?.();
+        cancelled = true;
+        if (retryTimer !== undefined) clearTimeout(retryTimer);
+        unblockWait?.();
+        await killCurrent();
       },
     };
   }

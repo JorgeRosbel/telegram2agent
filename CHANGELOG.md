@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.0
+
+### Added
+
+- `autoMode`: auto mode real en `createBot`, sin botones ✅/❌ en Telegram — Claude corre con `--permission-mode bypassPermissions`, OpenCode con `autoApprove: true`.
+- `bot.runStep(prompt, options?)`: como `bot.run()` pero devuelve una promesa awaitable, pensada para encadenar pasos en segundo plano con la misma sesión (`await bot.runStep('paso 1'); await bot.runStep('paso 2');`).
+- Reintento automático ante límite de uso del plan: si Claude Code responde "usage limit reached", la librería lo detecta y reintenta sola cada `usageLimitRetryMs` (default 10 min) hasta que se restablece, sin bloquear el resto del bot; avisa una vez por Telegram al empezar a esperar. Cubre `ask()`, `run()`/`runStep()` y el chat interactivo.
+- Alias de modelo de Claude Code ampliados (`fable`, `opusplan`, `best`, además de `opus`/`sonnet`/`haiku`).
+- `CLAUDE.md` con guía de arquitectura para trabajar en el repo.
+
+### Fixed
+
+- `bot.run()` no continuaba la sesión de Claude entre tareas en segundo plano (cada una arrancaba sesión nueva); ahora lee y persiste `sessionId` igual que el chat interactivo.
+- `bot.ask()` leía la sesión persistida pero nunca guardaba la resultante, así que no avanzaba entre llamadas.
+- Los avisos automáticos de `bot.run()`/`bot.notify()` se enviaban sin `parse_mode: "HTML"`, mostrando el formato en crudo (asteriscos literales) en vez de negritas/código renderizados.
+
 ## 0.1.1
 
 ### Added

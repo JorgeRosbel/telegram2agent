@@ -15,7 +15,7 @@ import type {
   RunResult,
 } from "./agents/types";
 import { createTelegramBot } from "./bot/telegram";
-import { sanitizeForTelegram } from "./bot/format";
+import { escapeHtml, toTelegramHtml } from "./bot/format";
 import { ApprovalBridge } from "./tasks/approvals";
 import { TaskRegistry, type Task } from "./tasks/registry";
 import { StateStore } from "./state/store";
@@ -77,6 +77,14 @@ export interface BotConfig {
   shellTimeoutMs?: number;
   /** Mostrar el razonamiento (thinking) del agente en el chat. Default: true. */
   thinking?: boolean;
+  /**
+   * Auto mode real: el agente ejecuta sin pedir aprobación por Telegram.
+   * Claude corre con `--permission-mode bypassPermissions` (salta todos los
+   * permisos, no solo ediciones); OpenCode corre con `autoApprove: true`
+   * (`--auto`). Ambos se pueden sobreescribir por agente en `claude`/`opencode`.
+   * Default: false.
+   */
+  autoMode?: boolean;
   claude?: ClaudeAdapterConfig;
   opencode?: OpencodeAdapterConfig;
 }
@@ -91,6 +99,19 @@ export interface T2ABot {
    * al terminar; puedes colgar callbacks con task.onDone().
    */
   run(prompt: string, options?: RunTaskOptions): Task | undefined;
+  /**
+   * Como `run()`, pero devuelve una promesa que resuelve con el `RunResult`
+   * (o rechaza si la tarea falla/se cancela) — pensado para encadenar pasos
+   * con `await` en orden, cada uno continuando la sesión del anterior:
+   *
+   *   await bot.runStep('paso 1');
+   *   await bot.runStep('paso 2'); // misma sesión que el paso 1
+   *
+   * Usa la misma configuración (agente, modelo, sesión, autoMode…) que
+   * `run()`; el chat sigue recibiendo la notificación automática de cada
+   * paso, esto solo añade el punto de espera para encadenarlos.
+   */
+  runStep(prompt: string, options?: RunTaskOptions): Promise<RunResult>;
   /** Envía un aviso directo al primer chat permitido. */
   notify(text: string): Promise<void>;
   readonly registry: TaskRegistry;
@@ -121,11 +142,18 @@ export function createBot(config: BotConfig): T2ABot {
   const cwd = config.cwd ?? process.cwd();
   const dbPath = config.dbPath ?? path.join(cwd, DEFAULT_DB_FILENAME);
 
-  const claude = new ClaudeAdapter({ cwd, ...config.claude });
+  const claude = new ClaudeAdapter({
+    cwd,
+    ...config.claude,
+    permissionMode:
+      config.claude?.permissionMode ??
+      (config.autoMode ? "bypassPermissions" : undefined),
+  });
   const opencode = new OpencodeAdapter({
     cwd,
     thinking: config.thinking,
     ...config.opencode,
+    autoApprove: config.opencode?.autoApprove ?? config.autoMode,
   });
   const adapters: Record<AgentName, AgentAdapter> = { claude, opencode };
 
@@ -159,6 +187,7 @@ export function createBot(config: BotConfig): T2ABot {
     shellTimeoutMs: config.shellTimeoutMs,
     thinking: config.thinking,
     taskTimeoutMs: config.taskTimeoutMs,
+    autoMode: config.autoMode,
   });
 
   function resolveAgent(agent?: AgentName): AgentAdapter {
@@ -175,16 +204,110 @@ export function createBot(config: BotConfig): T2ABot {
     options: AskOptions,
   ): Promise<RunResult> {
     const adapter = resolveAgent(options?.agent);
-    return adapter
+    const chatId = primaryChatId();
+    const result = await adapter
       .run({
         prompt,
         model: options?.model ?? store.modelFor(adapter.name),
         effort: options?.effort ?? store.effortFor(adapter.name),
-        sessionId: store.sessionFor(primaryChatId(), adapter.name),
+        sessionId: store.sessionFor(chatId, adapter.name),
         mode: options?.mode,
         cwd,
+        onUsageLimitWait: (info) => notifyUsageLimitWait(chatId, info),
       })
       .result();
+    if (result.sessionId)
+      await store.setSession(chatId, adapter.name, result.sessionId);
+    return result;
+  }
+
+  /** Avisa al chat que un run se quedó esperando el reset del límite de uso. */
+  function notifyUsageLimitWait(
+    chatId: number | string,
+    info: { attempt: number; retryInMs: number },
+  ): void {
+    if (info.attempt !== 1) return;
+    const minutes = Math.round(info.retryInMs / 60000);
+    void grammy.api.sendMessage(
+      chatId,
+      toTelegramHtml(
+        `⏳ Límite de uso del plan actual alcanzado. El bot sigue ` +
+          `funcionando — va a reintentar cada ${minutes} min hasta que se ` +
+          "restablezca, sin que tengas que hacer nada.",
+      ),
+      { parse_mode: "HTML" },
+    );
+  }
+
+  /** Lanza el adapter en segundo plano, ligado a la sesión y notificaciones del chat. */
+  function launchTask(
+    prompt: string,
+    options: RunTaskOptions | undefined,
+  ): Task | undefined {
+    const adapter = resolveAgent(options?.agent);
+    const chatId = options?.chatId ?? config.allow[0];
+    if (typeof chatId !== "number") return undefined;
+
+    const task = registry.create(prompt.slice(0, 80), chatId);
+    const handle = adapter.run({
+      prompt,
+      model: options?.model ?? store.modelFor(adapter.name),
+      effort: options?.effort ?? store.effortFor(adapter.name),
+      sessionId: store.sessionFor(chatId, adapter.name),
+      mode: options?.mode,
+      cwd,
+      onUsageLimitWait: (info) => notifyUsageLimitWait(chatId, info),
+    });
+    task.bind(() => handle.cancel());
+
+    task.onDone(async ({ result }) => {
+      if (!result) return;
+      if (result.sessionId) {
+        await store.setSession(chatId, adapter.name, result.sessionId);
+      }
+      const header = `${task.status === "done" ? "✅" : "⚠️"} Tarea #${task.id} terminada`;
+      await grammy.api.sendMessage(
+        chatId,
+        [
+          escapeHtml(header),
+          "",
+          toTelegramHtml(result.text.slice(0, 3000)) || "(sin salida)",
+        ].join("\n"),
+        { parse_mode: "HTML" },
+      );
+    });
+
+    void handle.result().then(
+      (result) => task.complete(result),
+      (error: Error) => task.fail(error),
+    );
+    return task;
+  }
+
+  /** `runStep`: envuelve `launchTask` en una promesa para poder encadenar con await. */
+  function runStep(
+    prompt: string,
+    options?: RunTaskOptions,
+  ): Promise<RunResult> {
+    return new Promise((resolve, reject) => {
+      const task = launchTask(prompt, options);
+      if (!task) {
+        reject(
+          new Error(
+            "runStep: chatId inválido (pasa un chatId numérico permitido en `allow`).",
+          ),
+        );
+        return;
+      }
+      task.onDone(({ result, error }) => {
+        if (error) reject(error);
+        else if (result) resolve(result);
+        else
+          reject(
+            new Error(`runStep: la tarea #${task.id} terminó sin resultado.`),
+          );
+      });
+    });
   }
 
   return {
@@ -201,43 +324,14 @@ export function createBot(config: BotConfig): T2ABot {
     async ask(prompt, options) {
       return execute(prompt, options ?? {});
     },
-    run(prompt, options) {
-      const adapter = resolveAgent(options?.agent);
-      const chatId = options?.chatId ?? config.allow[0];
-      if (typeof chatId !== "number") return undefined;
-
-      const handle = adapter.run({
-        prompt,
-        model: options?.model ?? store.modelFor(adapter.name),
-        effort: options?.effort ?? store.effortFor(adapter.name),
-        mode: options?.mode,
-        cwd,
-      });
-      const task = registry.create(prompt.slice(0, 80), chatId);
-      task.bind(() => handle.cancel());
-
-      task.onDone(async ({ result }) => {
-        if (!result) return;
-        await grammy.api.sendMessage(
-          chatId,
-          [
-            `${task.status === "done" ? "✅" : "⚠️"} Tarea #${task.id} terminada`,
-            "",
-            sanitizeForTelegram(result.text.slice(0, 3000)) || "(sin salida)",
-          ].join("\n"),
-        );
-      });
-
-      void handle.result().then(
-        (result) => task.complete(result),
-        (error: Error) => task.fail(error),
-      );
-      return task;
-    },
+    run: launchTask,
+    runStep,
     async notify(text) {
       const chatId = config.allow[0];
       if (typeof chatId !== "number") return;
-      await grammy.api.sendMessage(chatId, text);
+      await grammy.api.sendMessage(chatId, toTelegramHtml(text), {
+        parse_mode: "HTML",
+      });
     },
     registry,
     grammy,
