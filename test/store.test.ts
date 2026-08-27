@@ -53,6 +53,21 @@ describe("StateStore", () => {
     await rm(path.dirname(file), { recursive: true });
   });
 
+  // Regresión: `createBot` pasa `{ agent: config.defaults?.agent }`, así que sin
+  // `defaults.agent` llegaba un `undefined` explícito que pisaba el default y
+  // dejaba `store.agent` sin valor, tumbando cualquier resolveAgent().
+  it("un initial con undefined no pisa los defaults", async () => {
+    const file = await tmpFile();
+    const store = new StateStore(file, {
+      agent: undefined,
+      models: undefined,
+      efforts: undefined,
+    });
+    expect(store.agent).toBe("claude");
+    expect(store.modelFor("claude")).toBeUndefined();
+    await rm(path.dirname(file), { recursive: true });
+  });
+
   it("clearSession olvida la sesión sin tocar el resto del estado", async () => {
     const file = await tmpFile();
     const store = new StateStore(file);

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1
+
+### Fixed
+
+- `createBot` sin `defaults.agent` dejaba el bot inutilizable: el `{ agent: undefined }` explícito que se pasaba al `StateStore` pisaba el default del spread, así que `store.agent` quedaba sin valor y cualquier `resolveAgent()` reventaba con `undefined is not an object`. Afectaba a `ask`, `run`, `runStep` y `resetSession` por igual, en cualquier bot que no fijara el agente por defecto y no tuviera estado previo en disco.
+- `resolveAgent()` cae a `claude` en vez de reventar si el estado persistido nombra un agente que este build no conoce.
+
 ## 0.4.0
 
 ### Added

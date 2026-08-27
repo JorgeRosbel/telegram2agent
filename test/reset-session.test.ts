@@ -41,6 +41,18 @@ async function bootWithSession(): Promise<{
 }
 
 describe("bot.resetSession", () => {
+  // Regresión: sin `defaults.agent` ni estado previo, resolveAgent() devolvía
+  // undefined y resetSession() reventaba con "undefined is not an object".
+  it("funciona en un bot sin defaults ni estado previo", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "t2a-reset-"));
+    const bot = createBot({
+      token: "0:test-token",
+      allow: [42],
+      dbPath: path.join(dir, "state.json"),
+    });
+    await expect(bot.resetSession()).resolves.toBeUndefined();
+  });
+
   it("olvida la sesión del agente activo y deja intacta la configuración", async () => {
     const { bot, dbPath } = await bootWithSession();
 

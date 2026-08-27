@@ -19,13 +19,25 @@ export function emptyState(agent: AgentName = "claude"): PersistedState {
   return { agent, models: {}, modes: {}, efforts: {}, sessions: {} };
 }
 
+/** Copia sin las claves cuyo valor es `undefined`, para que no pisen defaults. */
+function withoutUndefined<T extends object>(value: T | undefined): Partial<T> {
+  if (!value) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(([, v]) => v !== undefined),
+  ) as Partial<T>;
+}
+
 export class StateStore {
   private state: PersistedState;
   private readonly file: string;
 
   constructor(file: string, initial?: Partial<PersistedState>) {
     this.file = file;
-    this.state = { ...emptyState(), ...initial };
+    // Ojo con el spread: un `{ agent: undefined }` explícito —lo que produce
+    // `config.defaults?.agent` cuando no se configura— pisaría el default de
+    // `emptyState()` y dejaría el agente sin resolver, tumbando cualquier
+    // `resolveAgent()`. Las claves con valor undefined se descartan.
+    this.state = { ...emptyState(), ...withoutUndefined(initial) };
   }
 
   async load(): Promise<void> {

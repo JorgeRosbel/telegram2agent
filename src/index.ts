@@ -236,7 +236,10 @@ export function createBot(config: BotConfig): T2ABot {
   });
 
   function resolveAgent(agent?: AgentName): AgentAdapter {
-    return adapters[agent ?? store.agent];
+    // El fallback cubre un estado persistido corrupto o de una versión futura
+    // con un agente que este build no conoce: mejor seguir con claude que
+    // reventar con "undefined is not an object".
+    return adapters[agent ?? store.agent] ?? adapters.claude;
   }
 
   function primaryChatId(): number {
