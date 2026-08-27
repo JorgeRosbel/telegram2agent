@@ -104,4 +104,16 @@ export class StateStore {
     };
     await this.persist();
   }
+
+  /**
+   * Olvida la sesión de un agente en un chat: el siguiente run arranca en
+   * limpio, sin `--resume`. Los modelos/efforts persistidos no se tocan.
+   */
+  async clearSession(chatId: number | string, agent: AgentName): Promise<void> {
+    const key = String(chatId);
+    const forChat = this.state.sessions[key];
+    if (forChat?.[agent] === undefined) return;
+    delete forChat[agent];
+    await this.persist();
+  }
 }

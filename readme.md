@@ -146,6 +146,19 @@ void summarizeRecentIssues().catch((error: Error) =>
 await listening;
 ```
 
+Steps of one unit of work share a session on purpose. Across _independent_
+units, that continuity is dead weight — the session grows without bound and
+every step resumes the whole history. Call `bot.resetSession()` between them:
+
+```ts
+for (const issue of issues) {
+  await bot.resetSession(); // fresh conversation
+  await bot.runStep("analyse…"); // these three share it
+  await bot.runStep("implement…");
+  await bot.runStep("verify…");
+}
+```
+
 If Claude Code ever hits your usage window mid-chain — `You've hit your
 session limit · resets 3:30am`, the older `usage limit reached`, or an API
 rate limit — you don't need to handle that yourself. The library puts the

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+
+- `bot.resetSession({ agent?, chatId? })`: olvida la sesión guardada para que el siguiente `ask`/`run`/`runStep` arranque una conversación nueva en vez de reanudar la anterior con `--resume`. Encadenar decenas de trabajos independientes en una sola sesión la hacía crecer sin techo — medido en un caso real: 5942 turnos y 4,4 MB tras 56 issues, con cada paso reanudando el historial completo de las anteriores. Resetear entre unidades de trabajo que no comparten contexto corta ese crecimiento. Los modelos/efforts persistidos no se tocan.
+- `StateStore.clearSession(chatId, agent)`, que es lo que usa por debajo.
+
 ## 0.3.0
 
 ### Fixed

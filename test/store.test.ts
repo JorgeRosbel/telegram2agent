@@ -53,6 +53,35 @@ describe("StateStore", () => {
     await rm(path.dirname(file), { recursive: true });
   });
 
+  it("clearSession olvida la sesión sin tocar el resto del estado", async () => {
+    const file = await tmpFile();
+    const store = new StateStore(file);
+    await store.setModel("claude", "opus");
+    await store.setSession(123456, "claude", "ses-abc");
+    await store.setSession(123456, "opencode", "ses-oc");
+
+    await store.clearSession(123456, "claude");
+
+    expect(store.sessionFor(123456, "claude")).toBeUndefined();
+    // El otro agente y la configuración siguen intactos.
+    expect(store.sessionFor(123456, "opencode")).toBe("ses-oc");
+    expect(store.modelFor("claude")).toBe("opus");
+
+    // Y el olvido sobrevive a un reinicio: no se queda solo en memoria.
+    const reloaded = new StateStore(file);
+    await reloaded.load();
+    expect(reloaded.sessionFor(123456, "claude")).toBeUndefined();
+    expect(reloaded.sessionFor(123456, "opencode")).toBe("ses-oc");
+    await rm(path.dirname(file), { recursive: true });
+  });
+
+  it("clearSession sobre una sesión inexistente no rompe ni reescribe", async () => {
+    const file = await tmpFile();
+    const store = new StateStore(file);
+    await expect(store.clearSession(999999, "claude")).resolves.toBeUndefined();
+    await rm(path.dirname(file), { recursive: true });
+  });
+
   it("no deja archivos temporales al persistir (escritura atómica)", async () => {
     const file = await tmpFile();
     const store = new StateStore(file);

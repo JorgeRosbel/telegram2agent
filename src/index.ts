@@ -130,6 +130,28 @@ export interface T2ABot {
    * paso, esto solo añade el punto de espera para encadenarlos.
    */
   runStep(prompt: string, options?: RunTaskOptions): Promise<RunResult>;
+  /**
+   * Corta la continuidad: olvida la sesión guardada, de modo que el siguiente
+   * `ask`/`run`/`runStep` arranque una conversación nueva en vez de reanudar
+   * la anterior con `--resume`.
+   *
+   * Encadenar decenas de trabajos independientes en una sola sesión la hace
+   * crecer sin techo (cada paso reanuda todo el historial previo), así que
+   * conviene resetear entre unidades de trabajo que no comparten contexto:
+   *
+   *   for (const issue of issues) {
+   *     await bot.resetSession();       // arranca limpio
+   *     await bot.runStep('analiza…');  // estos tres sí comparten sesión
+   *     await bot.runStep('implementa…');
+   *     await bot.runStep('verifica…');
+   *   }
+   *
+   * Los modelos/efforts persistidos no se tocan: solo se olvida la sesión.
+   */
+  resetSession(options?: {
+    agent?: AgentName;
+    chatId?: number | string;
+  }): Promise<void>;
   /** Envía un aviso directo al primer chat permitido. */
   notify(text: string): Promise<void>;
   readonly registry: TaskRegistry;
@@ -356,6 +378,11 @@ export function createBot(config: BotConfig): T2ABot {
     },
     run: launchTask,
     runStep,
+    async resetSession(options) {
+      const chatId = options?.chatId ?? config.allow[0];
+      if (chatId === undefined) return;
+      await store.clearSession(chatId, resolveAgent(options?.agent).name);
+    },
     async notify(text) {
       const chatId = config.allow[0];
       if (typeof chatId !== "number") return;
