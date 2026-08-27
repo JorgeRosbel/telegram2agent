@@ -247,16 +247,17 @@ export function createBot(config: BotConfig): T2ABot {
   /** Avisa al chat que un run se quedó esperando el reset del límite de uso. */
   function notifyUsageLimitWait(
     chatId: number | string,
-    info: { attempt: number; retryInMs: number },
+    info: { attempt: number; retryInMs: number; resetsAt?: string },
   ): void {
     if (info.attempt !== 1) return;
     const minutes = Math.round(info.retryInMs / 60000);
+    const when = info.resetsAt ? ` Se restablece ${info.resetsAt}.` : "";
     void grammy.api.sendMessage(
       chatId,
       toTelegramHtml(
-        `⏳ Límite de uso del plan actual alcanzado. El bot sigue ` +
-          `funcionando — va a reintentar cada ${minutes} min hasta que se ` +
-          "restablezca, sin que tengas que hacer nada.",
+        `⏳ Límite de uso del plan actual alcanzado.${when} La tarea queda ` +
+          `dormida y reintenta cada ${minutes} min hasta que vuelva, sin que ` +
+          "tengas que hacer nada.",
       ),
       { parse_mode: "HTML" },
     );
@@ -279,7 +280,13 @@ export function createBot(config: BotConfig): T2ABot {
       sessionId: store.sessionFor(chatId, adapter.name),
       mode: options?.mode,
       cwd,
-      onUsageLimitWait: (info) => notifyUsageLimitWait(chatId, info),
+      onUsageLimitWait: (info) => {
+        // El plazo de la tarea no debe consumirse mientras dormimos
+        // esperando a que el plan se restablezca.
+        task.pauseTimeout();
+        notifyUsageLimitWait(chatId, info);
+      },
+      onUsageLimitResume: () => task.resumeTimeout(),
     });
     task.bind(() => handle.cancel());
 

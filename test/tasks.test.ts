@@ -11,6 +11,54 @@ describe("TaskRegistry / Task", () => {
     vi.useRealTimers();
   });
 
+  // Regresión: el plazo de la tarea se comía las horas que el run pasa
+  // dormido esperando el reset del límite de uso, y la cancelaba a mitad.
+  it("no consume el plazo mientras el reloj está pausado", async () => {
+    const registry = new TaskRegistry(60_000);
+    const task = registry.create("tarea", 1);
+
+    task.pauseTimeout();
+    await vi.advanceTimersByTimeAsync(5 * 60_000); // 5 min dormida
+    expect(task.status).toBe("running");
+
+    task.resumeTimeout();
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(task.status).toBe("running");
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(task.status).toBe("cancelled");
+  });
+
+  it("descuenta el tiempo ya trabajado al reanudar el reloj", async () => {
+    const registry = new TaskRegistry(60_000);
+    const task = registry.create("tarea", 1);
+
+    await vi.advanceTimersByTimeAsync(50_000); // 50 s de trabajo real
+    task.pauseTimeout();
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    task.resumeTimeout();
+
+    // Quedaban 10 s, no 60.
+    await vi.advanceTimersByTimeAsync(9_000);
+    expect(task.status).toBe("running");
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(task.status).toBe("cancelled");
+  });
+
+  it("pausar y reanudar son idempotentes y contabilizan la espera", async () => {
+    const registry = new TaskRegistry(60_000);
+    const task = registry.create("tarea", 1);
+
+    task.pauseTimeout();
+    task.pauseTimeout();
+    await vi.advanceTimersByTimeAsync(120_000);
+    task.resumeTimeout();
+    task.resumeTimeout();
+
+    expect(task.status).toBe("running");
+    expect(task.waitingMs).toBe(120_000);
+  });
+
   it("crea tareas con id incremental y las lista como running", () => {
     const registry = new TaskRegistry(60_000);
     const a = registry.create("tarea a", 1);

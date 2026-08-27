@@ -41,6 +41,11 @@ export function spawnProcess(
     }
   });
 
+  // Escribir o cerrar stdin de un proceso que ya terminó emite EPIPE. No es
+  // accionable aquí: la muerte del proceso ya se propaga por `close`, y sin
+  // este handler el error subiría como excepción no capturada.
+  child.stdin.on("error", () => {});
+
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk: string) => {
     stderrChunks.push(chunk);
@@ -54,9 +59,11 @@ export function spawnProcess(
 
   const controller: ProcessController = {
     writeStdin(line: string) {
+      if (child.stdin.writableEnded) return;
       child.stdin.write(`${line}\n`);
     },
     endStdin() {
+      if (child.stdin.writableEnded) return;
       child.stdin.end();
     },
     async kill() {

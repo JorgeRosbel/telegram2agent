@@ -86,7 +86,7 @@ Notas:
 - **Claude Code**: el modelo usa alias nativos (`sonnet`, `opus`, `haiku`, `fable`, `opusplan`, `best`) o cualquier ID versionado (`claude-opus-5`, …). Sin aprobadores conectados corre con `--permission-mode acceptEdits`.
 - **OpenCode**: declara sus modelos con `opencode: { models: ['anthropic/claude-sonnet-4', …] }`. La aprobación interactiva por botones es exclusiva de Claude en v1; OpenCode corre con permisos denegados salvo `autoApprove: true` (`--auto`).
 - **`autoMode`**: auto mode real, sin botones ✅/❌ en Telegram. Claude corre con `--permission-mode bypassPermissions` (salta _todos_ los permisos, no solo ediciones de archivo); OpenCode corre con `autoApprove: true`. Se puede sobreescribir por agente pasando `claude: { permissionMode: '...' }` u `opencode: { autoApprove: false }` explícitamente. En modo `plan` nunca hay nada que aprobar, así que `autoMode` no cambia nada ahí.
-- **Límite de uso del plan**: si Claude Code responde "usage limit reached" (se agotó la ventana de 5h/semanal de tu plan), la librería lo detecta y reintenta sola cada `usageLimitRetryMs` (default 10 min) hasta que se restablece — el bot sigue respondiendo a otros chats/comandos mientras tanto, y avisa una vez por Telegram al empezar a esperar. Aplica a `ask()`, `run()`/`runStep()` y al chat interactivo por igual; se cancela con `task.cancel()` / `/cancel <id>` como cualquier otra tarea.
+- **Límite de uso del plan**: si Claude Code responde que se agotó tu ventana de uso (`You've hit your session limit · resets …`, `usage limit reached`, o un rate limit del API), la librería lo detecta y reintenta sola cada `usageLimitRetryMs` (default 10 min) hasta que se restablece — el bot sigue respondiendo a otros chats/comandos mientras tanto, y avisa una vez por Telegram al empezar a esperar. Aplica a `ask()`, `run()`/`runStep()` y al chat interactivo por igual; se cancela con `task.cancel()` / `/cancel <id>` como cualquier otra tarea.
 
 ## Chaining background tasks (real example)
 
@@ -146,13 +146,18 @@ void summarizeRecentIssues().catch((error: Error) =>
 await listening;
 ```
 
-If Claude Code ever replies with `usage limit reached` mid-chain (your
-plan's 5-hour/weekly window ran out), you don't need to handle that
-yourself — the library retries the failed step automatically every 10
-minutes (configurable via `claude: { usageLimitRetryMs }`) until the limit
-resets, sends one Telegram notice when it starts waiting, and then
-continues the chain right where it left off. The rest of the bot (other
-chats, `/tasks`, `!shell`) keeps working normally while one step waits.
+If Claude Code ever hits your usage window mid-chain — `You've hit your
+session limit · resets 3:30am`, the older `usage limit reached`, or an API
+rate limit — you don't need to handle that yourself. The library puts the
+step to sleep and retries every 10 minutes (configurable via
+`claude: { usageLimitRetryMs }`) until the limit resets, sends one Telegram
+notice saying when it comes back, and then continues the chain right where
+it left off. `taskTimeoutMs` is not consumed while sleeping: it measures the
+agent's working time, not the wait. The rest of the bot (other chats,
+`/tasks`, `!shell`) keeps working normally while one step waits.
+
+A spend limit (`monthly spend limit`, `credit balance too low`) is _not_
+treated this way — it doesn't lift on its own, so it fails immediately.
 
 ## Desarrollo
 

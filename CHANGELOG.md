@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.0
+
+### Fixed
+
+- **Fuga de procesos `claude` (crítico).** Con `--input-format stream-json` la CLI sigue esperando mensajes por stdin después de emitir su `result`, y el adaptador resolvía la promesa sin cerrarlo: cada turno dejaba vivo un proceso `claude` entero. Encadenar pasos con `runStep` acababa agotando la RAM de la máquina — en un caso real, 164 procesos ocupando 28,6 GB entre RAM y swap, hasta que el OOM killer del kernel se llevó por delante la sesión de escritorio del usuario. Ahora stdin se cierra en cuanto el turno se asienta, con SIGTERM de respaldo si el proceso no sale en 10 s.
+- **El límite de uso ya no se detectaba (crítico).** `isUsageLimitError` solo casaba con la frase antigua `usage limit reached`, pero `claude` 2.1.x dice `You've hit your session limit · resets 3:30am (Europe/Madrid)`. El run fallaba en vez de dormir, así que un script encadenado quemaba una issue tras otra durante toda la ventana del límite. La detección cubre ahora la plantilla `You've hit your … limit` (session, weekly, fast, monthly), el rate limit del API y la frase histórica. Un tope de gasto (`spend limit`, `credit balance too low`) sigue fallando de inmediato: no se levanta solo por esperar.
+- **El plazo de la tarea se comía la espera del límite.** `taskTimeoutMs` corría durante las horas que el run pasaba dormido y cancelaba la tarea a mitad de la espera. Ahora el reloj mide trabajo del agente: se para al empezar a esperar y se reanuda con el plazo que quedaba.
+- Escribir o cerrar stdin de un proceso ya muerto podía subir como excepción no capturada (EPIPE).
+
+### Added
+
+- `RunOptions.onUsageLimitResume`: se dispara al terminar la espera, justo antes de reintentar.
+- `Task.pauseTimeout()` / `Task.resumeTimeout()` / `Task.waitingMs`: control del reloj del timeout y tiempo acumulado dormido.
+- `parseUsageLimitReset(text)`: extrae el momento de reset que anuncia el CLI. El aviso de Telegram ahora dice hasta cuándo espera ("Se restablece 3:30am (Europe/Madrid)").
+
 ## 0.2.1
 
 ### Added

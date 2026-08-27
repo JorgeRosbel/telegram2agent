@@ -12,15 +12,58 @@ import { TELEGRAM_FORMAT_INSTRUCTION } from "../bot/format";
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_USAGE_LIMIT_RETRY_MS = 10 * 60 * 1000;
+/** Margen para que `claude` salga solo tras el EOF antes de forzar SIGTERM. */
+const REAP_GRACE_MS = 10 * 1000;
 
 /**
- * Detecta si un texto de error es específicamente "se agotó el límite de
- * uso del plan actual" (la ventana de 5h/semanal de la suscripción), y no
- * cualquier otro error (auth, red, bug del agente…). Confirmado como frase
- * literal del CLI (`usage limit reached`) inspeccionando el binario.
+ * Frases con las que el CLI dice "no puedes seguir ahora mismo, pero podrás
+ * más tarde". Verificadas contra el binario instalado (`claude` 2.1.x), que
+ * construye el aviso con la plantilla `You've hit your ${scope}${…}` — de ahí
+ * salen `session limit`, `weekly limit`, `fast limit`, `monthly limit` y el
+ * escueto `your limit`, todas seguidas de `· resets <hora>`.
+ *
+ * Ojo al ampliar esto: un falso negativo hace que el run falle en vez de
+ * esperar (que es lo que quemaba una issue tras otra durante un límite de
+ * sesión), y un falso positivo lo deja dormido en vez de fallar.
+ */
+const USAGE_LIMIT_PATTERNS: RegExp[] = [
+  /usage limit reached/i,
+  /you'?ve hit your [^\n]{0,40}limit/i,
+  /\b(?:session|weekly|5-hour|five-hour|opus|fast) limit\b[^\n]{0,60}\b(?:reached|resets?)\b/i,
+  /\brate[ _-]?limit(?:ed)?\b/i,
+];
+
+/**
+ * Un tope de gasto no se levanta solo: necesita que un humano suba el límite
+ * o recargue saldo. Dormir aquí dejaría el run colgado indefinidamente, así
+ * que se trata como fallo duro pese a contener la palabra "limit".
+ */
+const BILLING_LIMIT_PATTERN =
+  /\bspend limit\b|\bcredit balance too low\b|\bbilling_error\b/i;
+
+/**
+ * Detecta si un fallo es "se agotó el límite de uso" (ventana de 5h, semanal
+ * o rate limit del API) y no otro error (auth, red, bug del agente…), en cuyo
+ * caso el run debe dormir y reintentar en lugar de rendirse.
  */
 export function isUsageLimitError(text: string | undefined): boolean {
-  return text !== undefined && /usage limit reached/i.test(text);
+  if (text === undefined) return false;
+  if (BILLING_LIMIT_PATTERN.test(text)) return false;
+  return USAGE_LIMIT_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+/**
+ * Extrae el momento de reset que el CLI adjunta al aviso
+ * (`… · resets 3:30am (Europe/Madrid)`), para poder decírselo al usuario.
+ */
+export function parseUsageLimitReset(
+  text: string | undefined,
+): string | undefined {
+  const match = text?.match(
+    /resets\s+([^\n·]{1,40}?)\s*$|resets\s+([^\n·]{1,40})/i,
+  );
+  const raw = (match?.[1] ?? match?.[2])?.trim();
+  return raw && raw.length > 0 ? raw : undefined;
 }
 
 /**
@@ -253,10 +296,12 @@ export class ClaudeAdapter implements AgentAdapter {
       let settled = false;
       let stderrText = "";
       const timerRef: { current?: ReturnType<typeof setTimeout> } = {};
+      const reapRef: { current?: () => void } = {};
       const finish = (fail: Error | undefined): void => {
         if (settled) return;
         settled = true;
         if (timerRef.current !== undefined) clearTimeout(timerRef.current);
+        reapRef.current?.();
         if (fail) {
           reject(fail);
         } else if (current) {
@@ -307,6 +352,24 @@ export class ClaudeAdapter implements AgentAdapter {
           },
         },
       );
+
+      // A diferencia de opencode, aquí stdin NO puede cerrarse al arrancar: el
+      // protocolo de permisos responde por esa misma tubería. Pero con
+      // `--input-format stream-json` la CLI sigue esperando más mensajes
+      // después de emitir su `result`, así que sin EOF el proceso no termina
+      // jamás. Cada turno dejaba vivo un `claude` completo: encadenar pasos
+      // (o reintentar por límite de uso) acababa agotando la RAM de la
+      // máquina. Cerramos stdin en cuanto el turno se asienta y, si aun así
+      // no sale, lo matamos.
+      const reap = (): void => {
+        controller.endStdin();
+        const forced = setTimeout(() => void controller.kill(), REAP_GRACE_MS);
+        void close.then(() => clearTimeout(forced));
+      };
+      reapRef.current = reap;
+      // `finish` puede haberse disparado ya si el `result` llegó de forma
+      // síncrona durante el spawn, antes de que `reapRef` estuviera puesto.
+      if (settled) reap();
 
       timerRef.current = setTimeout(() => {
         void controller.kill();
@@ -379,13 +442,18 @@ export class ClaudeAdapter implements AgentAdapter {
               : outcome.text;
 
         if (!cancelled && isUsageLimitError(failureText)) {
-          options.onUsageLimitWait?.({ attempt, retryInMs: retryMs });
+          options.onUsageLimitWait?.({
+            attempt,
+            retryInMs: retryMs,
+            resetsAt: parseUsageLimitReset(failureText),
+          });
           await new Promise<void>((resolve) => {
             unblockWait = resolve;
             retryTimer = setTimeout(resolve, retryMs);
           });
           retryTimer = undefined;
           unblockWait = undefined;
+          options.onUsageLimitResume?.({ attempt });
           continue;
         }
 

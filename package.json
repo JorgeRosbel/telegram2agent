@@ -1,6 +1,6 @@
 {
   "name": "@ariaskit/telegram2agent",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Convierte interacciones de Telegram en acciones para agentes de IA.",
   "type": "module",
   "license": "MIT",

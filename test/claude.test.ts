@@ -5,6 +5,7 @@ import {
   FILE_PROTOCOL_INSTRUCTION,
   isUsageLimitError,
   parseClaudeEvent,
+  parseUsageLimitReset,
 } from "@/agents/claude";
 
 // Fixtures basados en el protocolo documentado de `claude -p --output-format stream-json`.
@@ -139,11 +140,55 @@ describe("isUsageLimitError", () => {
     expect(isUsageLimitError("USAGE LIMIT REACHED")).toBe(true);
   });
 
+  // Regresión: este es el texto literal que devolvió `claude` 2.1.x durante
+  // un límite de sesión. No casaba con /usage limit reached/ y el run fallaba
+  // en vez de dormir, quemando una issue tras otra.
+  it("detecta la plantilla actual «You've hit your … limit»", () => {
+    expect(
+      isUsageLimitError(
+        "You've hit your session limit · resets 3:30am (Europe/Madrid)",
+      ),
+    ).toBe(true);
+    expect(
+      isUsageLimitError("You've hit your weekly limit · resets Mon 9:00am"),
+    ).toBe(true);
+    expect(isUsageLimitError("You've hit your fast limit")).toBe(true);
+    expect(isUsageLimitError("You've hit your limit")).toBe(true);
+  });
+
+  it("trata el rate limit del API igual que el límite de plan", () => {
+    expect(isUsageLimitError("429 rate limited, retry later")).toBe(true);
+    expect(isUsageLimitError("Rate limit exceeded")).toBe(true);
+  });
+
   it("no confunde otros errores (auth, red, timeout…)", () => {
     expect(isUsageLimitError("Invalid API key")).toBe(false);
     expect(isUsageLimitError("claude terminó con código 1 sin resultado")).toBe(
       false,
     );
     expect(isUsageLimitError(undefined)).toBe(false);
+  });
+
+  // Un tope de gasto no se levanta solo: dormir aquí colgaría el run.
+  it("no duerme ante un límite de facturación", () => {
+    expect(isUsageLimitError("You've hit your monthly spend limit")).toBe(
+      false,
+    );
+    expect(isUsageLimitError("credit balance too low")).toBe(false);
+  });
+});
+
+describe("parseUsageLimitReset", () => {
+  it("extrae el momento de reset que anuncia el CLI", () => {
+    expect(
+      parseUsageLimitReset(
+        "You've hit your session limit · resets 3:30am (Europe/Madrid)",
+      ),
+    ).toBe("3:30am (Europe/Madrid)");
+  });
+
+  it("devuelve undefined cuando el aviso no lo trae", () => {
+    expect(parseUsageLimitReset("You've hit your limit")).toBeUndefined();
+    expect(parseUsageLimitReset(undefined)).toBeUndefined();
   });
 });

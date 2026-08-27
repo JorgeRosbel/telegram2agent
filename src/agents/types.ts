@@ -35,7 +35,14 @@ export interface RunOptions {
    * espera; el adapter reintenta indefinidamente hasta que el CLI vuelva
    * a responder o se cancele el run con `RunHandle.cancel()`.
    */
-  onUsageLimitWait?: (info: { attempt: number; retryInMs: number }) => void;
+  onUsageLimitWait?: (info: {
+    attempt: number;
+    retryInMs: number;
+    /** Momento de reset que anuncia el CLI, p. ej. "3:30am (Europe/Madrid)". */
+    resetsAt?: string;
+  }) => void;
+  /** Se dispara al terminar la espera, justo antes de reintentar. */
+  onUsageLimitResume?: (info: { attempt: number }) => void;
 }
 
 export interface RunResult {

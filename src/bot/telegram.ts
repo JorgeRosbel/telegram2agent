@@ -459,12 +459,13 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
       onUsageLimitWait: (info) => {
         if (info.attempt !== 1) return;
         const minutes = Math.round(info.retryInMs / 60000);
+        const when = info.resetsAt ? ` Se restablece ${info.resetsAt}.` : "";
         void ctx.api.sendMessage(
           chatId,
           replyHtml(
-            `⏳ *${agent}* alcanzó el límite de uso de tu plan actual. ` +
-              `El bot sigue funcionando — va a reintentar cada ${minutes} min ` +
-              "hasta que se restablezca, sin que tengas que hacer nada.",
+            `⏳ *${agent}* alcanzó el límite de uso de tu plan actual.${when} ` +
+              `La tarea queda dormida y reintenta cada ${minutes} min hasta ` +
+              "que vuelva, sin que tengas que hacer nada.",
           ),
           { parse_mode: "HTML" },
         );
@@ -519,9 +520,17 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
       mode?: AgentMode;
       onPermission?: (r: PermissionRequest) => Promise<boolean>;
       onText?: (partial: string) => void;
-      onUsageLimitWait?: (info: { attempt: number; retryInMs: number }) => void;
+      onUsageLimitWait?: (info: {
+        attempt: number;
+        retryInMs: number;
+        resetsAt?: string;
+      }) => void;
     },
   ): Promise<RunResult> {
+    // La tarea se crea antes del run para poder parar su reloj: el plazo mide
+    // trabajo del agente, no las horas que pasemos dormidos esperando a que
+    // el límite de uso del plan se restablezca.
+    const task = registry.create(opts.prompt.slice(0, 80), chatId);
     const handle = adapter.run({
       prompt: opts.prompt,
       model: store.modelFor(adapter.name),
@@ -532,10 +541,13 @@ export function createTelegramBot(options: TelegramLayerOptions): Bot {
       files: opts.files,
       onPermission: opts.onPermission,
       onText: opts.onText,
-      onUsageLimitWait: opts.onUsageLimitWait,
+      onUsageLimitWait: (info) => {
+        task.pauseTimeout();
+        opts.onUsageLimitWait?.(info);
+      },
+      onUsageLimitResume: () => task.resumeTimeout(),
     });
 
-    const task = registry.create(opts.prompt.slice(0, 80), chatId);
     task.bind(() => handle.cancel());
     void handle.result().then(
       (result) => task.complete(result),

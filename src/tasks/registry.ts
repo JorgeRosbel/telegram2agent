@@ -23,15 +23,59 @@ export class Task {
   private cancelFn?: () => Promise<void>;
   private listeners: Array<(info: TaskDoneInfo) => void> = [];
   private timeoutHandle?: ReturnType<typeof setTimeout>;
+  private remainingMs: number;
+  private armedAt = Date.now();
+  private waitingSince?: number;
+  /** Tiempo total que el reloj estuvo parado esperando fuera del agente. */
+  private pausedMs = 0;
 
   constructor(description: string, chatId: number | string, timeoutMs: number) {
     this.description = description;
     this.chatId = chatId;
-    if (timeoutMs > 0) {
-      this.timeoutHandle = setTimeout(() => {
-        void this.cancel();
-      }, timeoutMs);
+    this.remainingMs = timeoutMs;
+    this.arm();
+  }
+
+  private arm(): void {
+    if (this.remainingMs <= 0) return;
+    this.armedAt = Date.now();
+    this.timeoutHandle = setTimeout(() => {
+      void this.cancel();
+    }, this.remainingMs);
+  }
+
+  /**
+   * Para el reloj del timeout. El plazo mide trabajo del agente, no las
+   * esperas ajenas a él: si se agotó el límite de uso del plan, el run se
+   * queda dormido hasta que se restablezca (horas, potencialmente) y sería
+   * absurdo cancelar la tarea por ello. Idempotente.
+   */
+  pauseTimeout(): void {
+    if (this.timeoutHandle === undefined || this.waitingSince !== undefined) {
+      return;
     }
+    clearTimeout(this.timeoutHandle);
+    this.timeoutHandle = undefined;
+    this.remainingMs = Math.max(
+      0,
+      this.remainingMs - (Date.now() - this.armedAt),
+    );
+    this.waitingSince = Date.now();
+  }
+
+  /** Reanuda el reloj con el plazo que quedaba. Idempotente. */
+  resumeTimeout(): void {
+    if (this.waitingSince === undefined) return;
+    this.pausedMs += Date.now() - this.waitingSince;
+    this.waitingSince = undefined;
+    if (this.status === "running") this.arm();
+  }
+
+  /** Milisegundos que la tarea pasó dormida esperando el reset del límite. */
+  get waitingMs(): number {
+    const open =
+      this.waitingSince !== undefined ? Date.now() - this.waitingSince : 0;
+    return this.pausedMs + open;
   }
 
   /** Conecta la tarea con el run del adapter. Uso interno. */
